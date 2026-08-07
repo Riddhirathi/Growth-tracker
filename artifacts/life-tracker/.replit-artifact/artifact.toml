@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Life Tracker"
+description = "A personal life dashboard for managing daily tasks, expenses, nutrition, weight, and habit streaks in one calm offline-first app."
+version = "1.0.0"
+id = "artifacts/life-tracker"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23940
+
+[services.development]
+run = "pnpm --filter @workspace/life-tracker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/life-tracker", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/life-tracker/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23940"
+BASE_PATH = "/"
