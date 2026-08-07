@@ -1,0 +1,472 @@
+# Product Requirements Document \(PRD\)
+
+## Personal Life Tracker \- iOS App
+
+**Version:** 1\.0
+
+---
+
+# 1\. Overview
+
+Build a **native iOS application** that acts as a personal life
+dashboard\. The app combines:
+
+- Daily & recurring task management
+- Expense tracking
+- Nutrition tracking
+- Weight tracking
+- Habit streaks
+- Analytics & charts
+- Dashboard
+
+The application is designed **only for personal use**, so the
+architecture should remain extremely simple, lightweight, and free to
+operate\.
+
+The application **must not use Firebase, Supabase, MongoDB, PostgreSQL,**
+**or any paid backend/database**\.
+
+Google Sheets will serve as the persistent storage\.
+
+---
+
+# 2\. Goals
+
+The app should replace multiple apps like:
+
+- Apple Reminders
+- Habit Tracker
+- MyFitnessPal
+- Expense Manager
+
+with one unified application\.
+
+---
+
+# 3\. Technology Stack
+
+## Frontend
+
+- SwiftUI
+- MVVM Architecture
+- Swift Concurrency \(async/await\)
+- Observation framework
+- Charts Framework \(Apple Charts\)
+- PhotosUI
+- VisionKit \(future OCR support\)
+
+## Backend
+
+Google Apps Script
+
+Purpose:
+
+- REST API
+- Authentication
+- Read/write Google Sheets
+- Validation
+
+## Storage
+
+Google Sheets
+
+Create four spreadsheets:
+
+- Tasks
+- Expenses
+- Nutrition
+- FoodDatabase
+
+Optional:
+
+- Weight
+- Settings
+
+---
+
+# 4\. Google Sheets Schema
+
+## Tasks
+
+Column            Type
+
+---
+
+id                UUID
+title             String
+notes             String
+dueDate           Date
+recurring         Bool
+recurrenceType    daily/weekly/monthly
+recurrenceValue   Int/String
+completed         Bool
+completedDate     Date
+createdAt         Date
+
+## Expenses
+
+Column     Type
+
+---
+
+id         UUID
+date       Date
+category   Food/Shopping/…
+amount     Double
+notes      String
+
+Categories:
+
+- Food
+- Shopping
+- Rent
+- Fuel
+- Entertainment
+- Bills
+- Health
+- Travel
+- Miscellaneous
+
+User can add custom categories\.
+
+## Nutrition
+
+Store each food separately\.
+
+Column     Type
+
+---
+
+id         UUID
+date       Date
+food       String
+quantity   Double
+unit       g/ml/piece
+calories   Double
+protein    Double
+carbs      Double
+fats       Double
+fibre      Double
+
+Daily totals are calculated dynamically\.
+
+## Weight
+
+\| date \| weight \|
+
+## Food Database
+
+\| food \| quantity \| unit \| calories \| protein \| carbs \| fats \|
+fibre \|
+
+Example:
+
+\| Paneer \| 100 \| g \| 265 \| 18 \| 2 \| 20 \| 0 \|
+
+---
+
+# 5\. Food Database Behaviour
+
+When user types:
+
+`2 Roti`
+
+Search FoodDatabase\.
+
+If found:
+
+- Calculate nutrition automatically\.
+
+If not found:
+
+Show dialog:
+
+> Food not found. Please enter Calories, Protein, Carbs, Fat and Fibre.
+
+Once user saves:
+
+- Automatically append to FoodDatabase sheet\.
+- Future searches should find it immediately\.
+
+No manual maintenance required after first entry\.
+
+---
+
+# 6\. Nutrition Logging
+
+Support three input methods\.
+
+## Method 1
+
+Search food
+
+Example:
+
+`Paneer`
+
+## Method 2
+
+Natural language
+
+Example:
+
+`2 roti` `1 bowl dal` `100g paneer`
+
+Parser extracts food name and quantity\.
+
+## Method 3
+
+Image Upload \(Future Phase\)
+
+Workflow:
+
+Take Photo → AI detects → Shows editable list → User confirms →
+Nutrition added\.
+
+---
+
+# 7\. Task Module
+
+Features:
+
+- Daily tasks
+- Weekly tasks
+- Monthly tasks
+- One\-time tasks
+- Recurring tasks
+- Completion
+- Streak tracking
+- Task history
+
+Examples:
+
+- Gym \(Every day\)
+- Pay Rent \(Monthly, Day 1\)
+- Water Plants \(Weekly, Sunday\)
+
+---
+
+# 8\. Habit Streaks
+
+Every recurring task automatically has a streak\.
+
+Example:
+
+Gym
+
+- Current streak: 18 days
+- Longest streak: 42 days
+
+Missing a day resets the streak\.
+
+---
+
+# 9\. Expense Module
+
+Features:
+
+- Add expense
+- Categories
+- Monthly summary
+- Weekly summary
+- Yearly summary
+- Search
+- Filter
+- Export CSV
+
+Charts:
+
+- Monthly spending
+- Category pie chart
+- Daily spending trend
+
+---
+
+# 10\. Nutrition Dashboard
+
+Track:
+
+- Calories
+- Protein
+- Carbs
+- Fat
+- Fibre
+
+Goals configurable\.
+
+Example:
+
+- Protein: 90 / 120 g
+- Calories: 1650 / 2200
+
+Display progress bars\.
+
+---
+
+# 11\. Weight Tracking
+
+Simple graph showing weekly, monthly and yearly trends\.
+
+---
+
+# 12\. Dashboard
+
+Cards:
+
+- Today’s Tasks
+- Today’s Nutrition
+- Today’s Expenses
+- Latest Weight
+- Habit Streaks
+
+Quick Add buttons:
+
+- Task
+- Expense
+- Food
+
+---
+
+# 13\. Analytics
+
+Tasks:
+
+- Completion %
+- Weekly trend
+- Monthly trend
+- Most skipped task
+- Longest streak
+
+Expenses:
+
+- Pie chart
+- Monthly spending
+- Category spending
+- Average daily expense
+
+Nutrition:
+
+- Average calories
+- Average protein
+- Average fibre
+- Average carbs
+- Protein consistency
+
+Weight:
+
+- Weekly graph
+- Monthly graph
+- BMI \(optional\)
+
+---
+
+# 14\. Google Apps Script API
+
+- GET /tasks
+- POST /task
+- PUT /task
+- DELETE /task
+- GET /expenses
+- POST /expense
+- GET /nutrition
+- POST /nutrition
+- GET /food
+- POST /food
+- GET /weight
+- POST /weight
+
+Responses: JSON\.
+
+---
+
+# 15\. Authentication
+
+Single\-user application\.
+
+Use a Bearer Token stored securely in the iOS Keychain\.
+
+Apps Script validates the token before processing requests\.
+
+---
+
+# 16\. Offline Support
+
+Cache data locally using SwiftData\.
+
+Workflow:
+
+User action → Save in SwiftData → Background sync to Google Sheets →
+Retry automatically if offline\.
+
+---
+
+# 17\. Project Structure
+
+```
+LifeTracker
+├── App
+├── Models
+├── Views
+├── ViewModels
+├── Services
+│   ├── GoogleSheetsService
+│   ├── TaskService
+│   ├── ExpenseService
+│   ├── NutritionService
+│   ├── FoodDatabaseService
+│   └── WeightService
+├── Components
+├── Charts
+├── Utils
+├── Extensions
+├── Assets
+└── Resources
+```
+
+---
+
+# 18\. UI Guidelines
+
+- Native iOS design
+- SF Symbols
+- Light & Dark Mode
+- Dynamic Type
+- Bottom Tab Bar
+
+Tabs:
+
+1. Dashboard
+2. Tasks
+3. Expenses
+4. Nutrition
+5. Analytics
+6. Settings
+
+---
+
+# 19\. Future Enhancements
+
+- AI food image recognition
+- Barcode scanning
+- Siri Shortcuts
+- Apple Health integration
+- Home Screen widgets
+- Apple Watch app
+- Budget alerts
+- iCloud backup
+- PDF/CSV export
+
+---
+
+# 20\. Development Guidelines for the LLM
+
+- Follow MVVM\.
+- Use reusable SwiftUI components\.
+- Use async/await\.
+- Store data locally in SwiftData and sync to Google Sheets\.
+- Keep Apps Script as a thin API layer\.
+- Use dependency injection\.
+- Build module by module\.
+- Keep architecture modular\.
+- Prioritize offline\-first behavior\.
+- Write clean, documented code with unit tests for business logic\.
