@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity, BarChart3, Check, ChevronRight, CircleDollarSign, CircleHelp, ClipboardList,
   Coffee, CookingPot, Dumbbell, Goal, LayoutDashboard, Menu, Plus, Scale, Settings,
@@ -150,6 +150,9 @@ function SettingsView({ resetData }: { resetData: () => void }) {
 
 function ModalForm({ modal, close, addTask, addExpense, addFood }: { modal: Modal; close: () => void; addTask: (task: Omit<Task, 'id' | 'completed'>) => void; addExpense: (expense: Omit<Expense, 'id' | 'date'>) => void; addFood: (food: Omit<Food, 'id' | 'time'>) => void }) {
   const [form, setForm] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setForm({});
+  }, [modal]);
   if (!modal) return null;
   const title = modal === 'task' ? 'Add a task' : modal === 'expense' ? 'Log an expense' : 'Add a food moment';
   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));

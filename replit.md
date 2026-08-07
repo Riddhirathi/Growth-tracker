@@ -1,6 +1,6 @@
-# [Project name]
+# Daymark Life Tracker
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An offline-first personal life dashboard for tasks, expenses, nutrition, weight, and habit momentum.
 
 ## Run & Operate
 
@@ -22,23 +22,28 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/life-tracker/src/App.tsx` — dashboard, task, expense, nutrition, analytics, and settings views
+- `artifacts/life-tracker/src/hooks/use-life-tracker.ts` — local-first tracker state and persistence
+- `attached_assets/Pasted--Product-Requirements-Document-PRD-Personal-Life-Tracke_1786090276692.txt` — product requirements source
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first milestone is offline-first and stores tracker data in the browser so it is usable without a connected account.
+- The web build is a product prototype; the intended final product is a native iOS app.
+- Google Sheets sync remains optional and should be added only after the user connects it manually.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Daymark combines daily tasks, spending, nutrition, weight, and habit momentum into one personal dashboard. The current milestone supports local task, expense, and food entry flows with responsive dashboard navigation.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- The intended final product is an iOS app, not a web-only product.
+- The user plans to publish and connect Google Sheets manually later.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Keep the local-first experience usable when Google Sheets is not connected.
 
 ## Pointers
 
