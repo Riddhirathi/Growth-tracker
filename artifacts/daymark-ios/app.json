@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Daymark iOS",
-    "slug": "daymark-ios",
+    "name": "Goals",
+    "slug": "goals",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/daymark-icon.png",
-    "scheme": "daymark-ios",
+    "scheme": "goals",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -14,9 +14,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.goals.app"
     },
-    "android": {},
+    "android": {
+      "package": "com.goals.app"
+    },
     "web": {
       "favicon": "./assets/images/daymark-icon.png"
     },
