@@ -1,0 +1,14 @@
+import React, { useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { AddSheet, Card, Header, Screen, SectionTitle, styles, TaskRow } from '@/components/daymark';
+import { useColors } from '@/hooks/useColors';
+import { useDaymark } from '@/hooks/use-daymark';
+
+export default function TasksScreen() {
+  const colors = useColors();
+  const { data, toggleTask, deleteTask, addTask, addExpense, addFood, addWeight, updateGoals } = useDaymark();
+  const [filter, setFilter] = useState<'Today' | 'Upcoming' | 'Completed'>('Today');
+  const [sheet, setSheet] = useState<'task' | 'expense' | 'food' | 'weight' | 'goals' | null>(null);
+  const tasks = data.tasks.filter((task) => filter === 'Today' ? task.due === 'Today' : filter === 'Upcoming' ? task.due !== 'Today' : task.completed);
+  return <Screen><Header title="Tasks" subtitle="A softer way to hold everything you mean to do." action={<Pressable onPress={() => setSheet('task')} style={[styles.headerAction, { backgroundColor: colors.primary }]}><Text style={{ color: colors.primaryForeground, fontWeight: '700' }}>+ Add</Text></Pressable>} /><Card><View style={styles.tabs}>{(['Today', 'Upcoming', 'Completed'] as const).map((item) => <Pressable key={item} onPress={() => setFilter(item)} style={[styles.tab, filter === item && { backgroundColor: colors.primary }]}><Text style={{ color: filter === item ? colors.primaryForeground : colors.mutedForeground, fontSize: 12, fontWeight: '700' }}>{item}</Text></Pressable>)}</View><SectionTitle title="Your list" note={`${data.tasks.filter((task) => !task.completed).length} open tasks`} />{tasks.length ? tasks.map((task) => <TaskRow key={task.id} task={task} onToggle={() => toggleTask(task.id)} onDelete={() => deleteTask(task.id)} />) : <View style={{ paddingVertical: 24 }}><Text style={[styles.cardTitle, { color: colors.foreground }]}>Nothing asking for you here.</Text><Text style={[styles.note, { color: colors.mutedForeground }]}>Use the empty space to notice what is going well.</Text></View>}</Card><Card><SectionTitle title="Streaks" note="Recurring tasks keep their history" />{data.tasks.filter((task) => task.recurrence !== 'none').map((task) => <View key={task.id} style={styles.streakRow}><View style={{ flex: 1 }}><Text style={[styles.taskText, { color: colors.foreground }]}>{task.title}</Text><Text style={[styles.note, { color: colors.mutedForeground }]}>{task.recurrence} · current {task.currentStreak} days</Text></View><Text style={[styles.streakNumber, { color: colors.primary }]}>{task.longestStreak}<Text style={styles.note}> longest</Text></Text></View>)}</Card><AddSheet kind={sheet} onClose={() => setSheet(null)} addTask={addTask} addExpense={addExpense} addFood={addFood} addWeight={addWeight} updateGoals={updateGoals} goals={data.goals} foodDatabase={data.foodDatabase} /></Screen>;
+}

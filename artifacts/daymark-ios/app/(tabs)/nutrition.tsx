@@ -1,0 +1,15 @@
+import React, { useState } from 'react';
+import { Text, View, Pressable } from 'react-native';
+import { AddSheet, Card, Header, Progress, Screen, SectionTitle, styles } from '@/components/daymark';
+import { useColors } from '@/hooks/useColors';
+import { today, useDaymark } from '@/hooks/use-daymark';
+
+export default function NutritionScreen() {
+  const colors = useColors();
+  const { data, addTask, addExpense, addFood, addWeight, updateGoals } = useDaymark();
+  const [sheet, setSheet] = useState<'task' | 'expense' | 'food' | 'weight' | 'goals' | null>(null);
+  const foods = data.foods.filter((food) => food.date === today);
+  const totals = foods.reduce((total, food) => ({ calories: total.calories + food.calories, protein: total.protein + food.protein, carbs: total.carbs + food.carbs, fat: total.fat + food.fat, fibre: total.fibre + food.fibre }), { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 });
+  const macros = [['Calories', totals.calories, data.goals.calories, 'kcal'], ['Protein', totals.protein, data.goals.protein, 'g'], ['Carbohydrates', totals.carbs, data.goals.carbs, 'g'], ['Fat', totals.fat, data.goals.fat, 'g'], ['Fibre', totals.fibre, data.goals.fibre, 'g']] as const;
+  return <Screen><Header title="Nutrition" subtitle="Notice what gives you energy. No numbers need to be perfect." action={<Pressable onPress={() => setSheet('food')} style={[styles.headerAction, { backgroundColor: colors.primary }]}><Text style={{ color: colors.primaryForeground, fontWeight: '700' }}>+ Add</Text></Pressable>} /><Card><SectionTitle title="Today at a glance" note="Targets are guides, not grades" /><Text style={[styles.nutritionTotal, { color: colors.foreground }]}>{Math.round(totals.calories)} <Text style={[styles.note, { color: colors.mutedForeground }]}>of {data.goals.calories} kcal</Text></Text><View style={{ gap: 15, marginTop: 16 }}>{macros.map(([label, value, goal, unit]) => <View key={label}><View style={styles.line}><Text style={[styles.note, { color: colors.foreground }]}>{label}</Text><Text style={[styles.note, { color: colors.foreground }]}>{Math.round(value)}{unit} / {goal}{unit}</Text></View><Progress value={value} goal={goal} /></View>)}</View></Card><Card><SectionTitle title="Food log" note={`${foods.length} moments recorded today`} />{foods.map((food) => <View key={food.id} style={[styles.foodRow, { borderBottomColor: colors.border }]}><View style={[styles.foodIcon, { backgroundColor: colors.secondary }]}><Text style={{ color: colors.secondaryForeground }}>◦</Text></View><View><Text style={[styles.taskText, { color: colors.foreground }]}>{food.label}</Text><Text style={[styles.note, { color: colors.mutedForeground }]}>{food.time} · {food.calories} kcal · {food.protein}g protein</Text></View></View>)}</Card><AddSheet kind={sheet} onClose={() => setSheet(null)} addTask={addTask} addExpense={addExpense} addFood={addFood} addWeight={addWeight} updateGoals={updateGoals} goals={data.goals} foodDatabase={data.foodDatabase} /></Screen>;
+}
