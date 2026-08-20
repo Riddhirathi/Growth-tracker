@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { pullFromSheets, pushToSheets, SheetsSyncError, type SheetsConfig, type SheetsSnapshot } from '@/lib/sheetsClient';
 
 export type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
 export type Task = {
@@ -40,48 +41,15 @@ export const dateKey = (date = new Date()) => {
 };
 
 const today = dateKey();
-const daysAgo = (amount: number) => dateKey(new Date(Date.now() - amount * 86400000));
-
-const seededTask = (task: Omit<Task, 'createdAt' | 'completedDates' | 'currentStreak' | 'longestStreak'> & Partial<Pick<Task, 'completedDates' | 'currentStreak' | 'longestStreak'>>): Task => ({
-  ...task,
-  createdAt: today,
-  completedDates: task.completedDates ?? (task.completed ? [today] : []),
-  currentStreak: task.currentStreak ?? (task.completed ? 1 : 0),
-  longestStreak: task.longestStreak ?? (task.completed ? 1 : 0),
-});
 
 const initialData: LifeData = {
-  tasks: [
-    seededTask({ id: 't1', title: 'Morning walk', due: 'Today', completed: true, priority: 'low', recurrence: 'daily', completedDates: [today, daysAgo(1), daysAgo(2)], currentStreak: 3, longestStreak: 12 }),
-    seededTask({ id: 't2', title: 'Review monthly budget', due: 'Today', completed: false, priority: 'high', recurrence: 'monthly', recurrenceValue: 1 }),
-    seededTask({ id: 't3', title: 'Call Mum', due: 'Today', completed: false, priority: 'medium', recurrence: 'weekly', recurrenceValue: new Date().getDay() }),
-    seededTask({ id: 't4', title: 'Pick up dry cleaning', due: 'Today', completed: false, priority: 'low', recurrence: 'none' }),
-    seededTask({ id: 't5', title: 'Plan next week', due: 'Tomorrow', completed: false, priority: 'medium', recurrence: 'weekly', recurrenceValue: new Date().getDay() }),
-  ],
-  expenses: [
-    { id: 'e1', label: 'Groceries', category: 'Food', amount: 36.45, date: today },
-    { id: 'e2', label: 'Train to city', category: 'Travel', amount: 8.6, date: today },
-    { id: 'e3', label: 'Ceramic studio', category: 'Leisure', amount: 24, date: daysAgo(1) },
-  ],
-  foods: [
-    { id: 'f1', label: 'Greek yoghurt & berries', calories: 280, protein: 19, carbs: 31, fat: 8, fibre: 6, time: '08:30', date: today },
-    { id: 'f2', label: 'Sourdough avocado toast', calories: 410, protein: 11, carbs: 44, fat: 22, fibre: 9, time: '12:15', date: today },
-  ],
-  foodDatabase: [
-    { label: 'Roti', quantity: 1, unit: 'piece', calories: 110, protein: 3, carbs: 22, fat: 1, fibre: 2 },
-    { label: 'Paneer', quantity: 100, unit: 'g', calories: 265, protein: 18, carbs: 2, fat: 20, fibre: 0 },
-    { label: 'Dal', quantity: 1, unit: 'piece', calories: 230, protein: 14, carbs: 32, fat: 5, fibre: 9 },
-    { label: 'Greek yoghurt', quantity: 100, unit: 'g', calories: 97, protein: 9, carbs: 4, fat: 5, fibre: 0 },
-  ],
-  weight: 68.4,
-  weightEntries: [
-    { id: 'w1', date: daysAgo(28), weight: 69.2 },
-    { id: 'w2', date: daysAgo(21), weight: 69 },
-    { id: 'w3', date: daysAgo(14), weight: 68.8 },
-    { id: 'w4', date: daysAgo(7), weight: 68.6 },
-    { id: 'w5', date: today, weight: 68.4 },
-  ],
-  habits: [{ name: 'Movement', days: 12, color: '#d87958' }, { name: 'Read', days: 8, color: '#4b8981' }, { name: 'Early night', days: 5, color: '#87739b' }],
+  tasks: [],
+  expenses: [],
+  foods: [],
+  foodDatabase: [],
+  weight: 0,
+  weightEntries: [],
+  habits: [],
   categories: ['Food', 'Shopping', 'Rent', 'Fuel', 'Entertainment', 'Bills', 'Health', 'Travel', 'Miscellaneous'],
   goals: { calories: 2100, protein: 120, carbs: 250, fat: 70, fibre: 30, dailySpend: 60 },
 };
@@ -113,7 +81,7 @@ function readStored(): LifeData {
       ...initialData,
       ...stored,
       tasks: (stored.tasks ?? initialData.tasks).map(normalizeTask),
-      expenses: (stored.expenses ?? initialData.expenses).map((expense) => ({ ...expense, date: expense.date.startsWith('Today') ? today : expense.date.startsWith('Yesterday') ? daysAgo(1) : expense.date })),
+      expenses: (stored.expenses ?? initialData.expenses).map((expense) => ({ ...expense, date: expense.date.startsWith('Today') ? today : expense.date.startsWith('Yesterday') ? dateKey(new Date(Date.now() - 86400000)) : expense.date })),
       foods: (stored.foods ?? initialData.foods).map((food) => ({ ...food, date: food.date ?? today })),
       foodDatabase: stored.foodDatabase ?? initialData.foodDatabase,
       weightEntries: stored.weightEntries ?? initialData.weightEntries,
@@ -123,6 +91,52 @@ function readStored(): LifeData {
   } catch {
     return initialData;
   }
+}
+
+const SHEETS_CONFIG_KEY = 'life-tracker-sheets-config';
+export type StoredSheetsConfig = SheetsConfig & { lastSyncedAt?: string };
+export type SyncStatus = 'disconnected' | 'idle' | 'syncing' | 'error';
+
+function readSheetsConfig(): StoredSheetsConfig | null {
+  try {
+    const raw = localStorage.getItem(SHEETS_CONFIG_KEY);
+    return raw ? (JSON.parse(raw) as StoredSheetsConfig) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSheetsConfig(config: StoredSheetsConfig) {
+  localStorage.setItem(SHEETS_CONFIG_KEY, JSON.stringify(config));
+}
+
+function toSnapshot(data: LifeData): SheetsSnapshot {
+  return {
+    tasks: data.tasks,
+    expenses: data.expenses,
+    foods: data.foods,
+    foodDatabase: data.foodDatabase,
+    weightEntries: data.weightEntries,
+    weight: data.weight,
+    categories: data.categories,
+    habits: data.habits,
+    goals: data.goals,
+  };
+}
+
+function applySnapshot(current: LifeData, snapshot: SheetsSnapshot): LifeData {
+  return {
+    ...current,
+    tasks: (snapshot.tasks ?? []).map(normalizeTask),
+    expenses: snapshot.expenses ?? [],
+    foods: snapshot.foods ?? [],
+    foodDatabase: snapshot.foodDatabase ?? [],
+    weightEntries: snapshot.weightEntries ?? [],
+    weight: snapshot.weight ?? current.weight,
+    categories: snapshot.categories?.length ? snapshot.categories : current.categories,
+    habits: snapshot.habits ?? current.habits,
+    goals: { ...current.goals, ...(snapshot.goals ?? {}) },
+  };
 }
 
 function calculateStreak(dates: string[]) {
@@ -140,13 +154,113 @@ function calculateStreak(dates: string[]) {
 
 export function useLifeTracker() {
   const [data, setData] = useState<LifeData>(readStored);
+  const [sheetsConfig, setSheetsConfig] = useState<StoredSheetsConfig | null>(readSheetsConfig);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => (readSheetsConfig() ? 'idle' : 'disconnected'));
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const pushTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const skipNextPush = useRef(false);
+
   useEffect(() => {
     localStorage.setItem('life-tracker-data', JSON.stringify(data));
   }, [data]);
 
+  useEffect(() => {
+    if (!sheetsConfig) return undefined;
+    if (skipNextPush.current) {
+      skipNextPush.current = false;
+      return undefined;
+    }
+    pushTimeout.current = setTimeout(() => {
+      setSyncStatus('syncing');
+      pushToSheets(sheetsConfig, toSnapshot(data))
+        .then(() => {
+          const synced: StoredSheetsConfig = { ...sheetsConfig, lastSyncedAt: new Date().toISOString() };
+          writeSheetsConfig(synced);
+          setSheetsConfig(synced);
+          setSyncStatus('idle');
+          setSyncError(null);
+        })
+        .catch((error) => {
+          setSyncStatus('error');
+          setSyncError(error instanceof SheetsSyncError ? error.message : 'Sync failed.');
+        });
+    }, 2000);
+    return () => clearTimeout(pushTimeout.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   const update = (change: (current: LifeData) => LifeData) => setData((current) => change(current));
+
+  const connectSheets = async (config: SheetsConfig, mode: 'import' | 'push') => {
+    setSyncStatus('syncing');
+    setSyncError(null);
+    try {
+      if (mode === 'import') {
+        const snapshot = await pullFromSheets(config);
+        skipNextPush.current = true;
+        setData((current) => applySnapshot(current, snapshot));
+      } else {
+        await pushToSheets(config, toSnapshot(data));
+      }
+      const stored: StoredSheetsConfig = { ...config, lastSyncedAt: new Date().toISOString() };
+      writeSheetsConfig(stored);
+      setSheetsConfig(stored);
+      setSyncStatus('idle');
+    } catch (error) {
+      setSyncStatus('error');
+      setSyncError(error instanceof SheetsSyncError ? error.message : 'Could not connect.');
+      throw error;
+    }
+  };
+
+  const disconnectSheets = () => {
+    localStorage.removeItem(SHEETS_CONFIG_KEY);
+    setSheetsConfig(null);
+    setSyncStatus('disconnected');
+    setSyncError(null);
+  };
+
+  const pullSheetsNow = async () => {
+    if (!sheetsConfig) return;
+    setSyncStatus('syncing');
+    setSyncError(null);
+    try {
+      const snapshot = await pullFromSheets(sheetsConfig);
+      skipNextPush.current = true;
+      setData((current) => applySnapshot(current, snapshot));
+      const stored: StoredSheetsConfig = { ...sheetsConfig, lastSyncedAt: new Date().toISOString() };
+      writeSheetsConfig(stored);
+      setSheetsConfig(stored);
+      setSyncStatus('idle');
+    } catch (error) {
+      setSyncStatus('error');
+      setSyncError(error instanceof SheetsSyncError ? error.message : 'Pull failed.');
+    }
+  };
+
+  const pushSheetsNow = async () => {
+    if (!sheetsConfig) return;
+    setSyncStatus('syncing');
+    setSyncError(null);
+    try {
+      await pushToSheets(sheetsConfig, toSnapshot(data));
+      const stored: StoredSheetsConfig = { ...sheetsConfig, lastSyncedAt: new Date().toISOString() };
+      writeSheetsConfig(stored);
+      setSheetsConfig(stored);
+      setSyncStatus('idle');
+    } catch (error) {
+      setSyncStatus('error');
+      setSyncError(error instanceof SheetsSyncError ? error.message : 'Push failed.');
+    }
+  };
+
   return {
     data,
+    sheets: { config: sheetsConfig, status: syncStatus, error: syncError },
+    connectSheets,
+    disconnectSheets,
+    pullSheetsNow,
+    pushSheetsNow,
     toggleTask: (id: string) => update((current) => ({
       ...current,
       tasks: current.tasks.map((task) => {

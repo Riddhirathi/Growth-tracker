@@ -210,6 +210,14 @@ button { cursor: pointer; }
 .switch span { display: block; width: 18px; height: 18px; border-radius: 50%; background: #fff7ef; transition: transform .2s; }
 .switch.on { background: #4b8981; }
 .switch.on span { transform: translateX(18px); }
+.setting-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sync-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #927f7c; white-space: nowrap; }
+.sync-status span { width: 7px; height: 7px; border-radius: 50%; background: #c9bdb9; }
+.sync-status.connected span { background: #4b8981; }
+.sync-status.syncing span { background: #ee7c48; animation: pulse-dot 1s ease-in-out infinite; }
+.sync-status.error span { background: hsl(var(--destructive)); }
+.sync-error { color: hsl(var(--destructive)); }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; background: rgba(41,33,59,.48); animation: fade-in .18s ease; }
 .modal { width: min(100%, 490px); max-height: calc(100dvh - 36px); overflow: auto; background: #fff7ef; border: 1px solid #e4cfbd; padding: 24px; box-shadow: 0 22px 60px rgba(41,33,59,.25); animation: modal-in .22s ease; }
 .modal-head { display: flex; justify-content: space-between; align-items: start; margin-bottom: 22px; }

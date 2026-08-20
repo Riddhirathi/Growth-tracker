@@ -1,0 +1,13 @@
+[build]
+  command = "corepack enable && corepack prepare pnpm@10.13.1 --activate && pnpm install && pnpm --filter @workspace/life-tracker run build"
+  publish = "artifacts/life-tracker/dist/public"
+
+[build.environment]
+  NODE_VERSION = "22"
+  PORT = "5173"
+  BASE_PATH = "/"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
