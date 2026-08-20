@@ -42,17 +42,77 @@ export const dateKey = (date = new Date()) => {
 
 const today = dateKey();
 
+// Typical per-serving estimates for common Indian foods, used to seed the local
+// food database so nutrition lookup works out of the box, offline, with no Sheets
+// connection required. Users can overwrite or add to any of these from the app.
+const defaultFoodDatabase: FoodDatabaseEntry[] = [
+  { label: 'Roti', quantity: 1, unit: 'piece', calories: 104, protein: 3, carbs: 18, fat: 2.5, fibre: 2 },
+  { label: 'Rice (cooked)', quantity: 100, unit: 'g', calories: 130, protein: 2.7, carbs: 28, fat: 0.3, fibre: 0.4 },
+  { label: 'Brown Rice (cooked)', quantity: 100, unit: 'g', calories: 123, protein: 2.7, carbs: 26, fat: 1, fibre: 1.8 },
+  { label: 'Dal Tadka', quantity: 150, unit: 'g', calories: 150, protein: 9, carbs: 20, fat: 4, fibre: 5 },
+  { label: 'Moong Dal', quantity: 150, unit: 'g', calories: 140, protein: 10, carbs: 22, fat: 1.5, fibre: 6 },
+  { label: 'Curd', quantity: 100, unit: 'g', calories: 60, protein: 3.5, carbs: 4.7, fat: 3.3, fibre: 0 },
+  { label: 'Milk', quantity: 100, unit: 'ml', calories: 58, protein: 3.1, carbs: 4.7, fat: 3, fibre: 0 },
+  { label: 'Buttermilk', quantity: 200, unit: 'ml', calories: 40, protein: 2, carbs: 4, fat: 1, fibre: 0 },
+  { label: 'Ghee', quantity: 10, unit: 'g', calories: 90, protein: 0, carbs: 0, fat: 10, fibre: 0 },
+  { label: 'Butter', quantity: 10, unit: 'g', calories: 72, protein: 0.1, carbs: 0.1, fat: 8.1, fibre: 0 },
+  { label: 'Paneer', quantity: 100, unit: 'g', calories: 265, protein: 18, carbs: 1.2, fat: 20.8, fibre: 0 },
+  { label: 'Chana (boiled)', quantity: 100, unit: 'g', calories: 164, protein: 8.9, carbs: 27, fat: 2.6, fibre: 7.6 },
+  { label: 'Rajma (cooked)', quantity: 100, unit: 'g', calories: 127, protein: 8.7, carbs: 22.8, fat: 0.5, fibre: 6.4 },
+  { label: 'Poha', quantity: 150, unit: 'g', calories: 250, protein: 5, carbs: 45, fat: 6, fibre: 2 },
+  { label: 'Upma', quantity: 150, unit: 'g', calories: 220, protein: 5, carbs: 35, fat: 7, fibre: 2.5 },
+  { label: 'Idli', quantity: 1, unit: 'piece', calories: 58, protein: 2, carbs: 12, fat: 0.2, fibre: 0.5 },
+  { label: 'Dosa (plain)', quantity: 1, unit: 'piece', calories: 133, protein: 2.7, carbs: 22, fat: 3.7, fibre: 0.6 },
+  { label: 'Sambar', quantity: 150, unit: 'g', calories: 120, protein: 5, carbs: 18, fat: 3, fibre: 4 },
+  { label: 'Bread (white slice)', quantity: 1, unit: 'piece', calories: 66, protein: 2.3, carbs: 12.6, fat: 0.8, fibre: 0.6 },
+  { label: 'Egg (boiled)', quantity: 1, unit: 'piece', calories: 78, protein: 6.3, carbs: 0.6, fat: 5.3, fibre: 0 },
+  { label: 'Aloo Gobi', quantity: 150, unit: 'g', calories: 180, protein: 4, carbs: 20, fat: 9, fibre: 4 },
+  { label: 'Aloo Paratha', quantity: 1, unit: 'piece', calories: 260, protein: 6, carbs: 36, fat: 10, fibre: 3 },
+  { label: 'Palak Paneer', quantity: 150, unit: 'g', calories: 280, protein: 12, carbs: 10, fat: 21, fibre: 4 },
+  { label: 'Chole', quantity: 150, unit: 'g', calories: 250, protein: 10, carbs: 30, fat: 10, fibre: 8 },
+  { label: 'Baingan Bharta', quantity: 150, unit: 'g', calories: 160, protein: 3, carbs: 14, fat: 10, fibre: 5 },
+  { label: 'Bhindi Masala', quantity: 150, unit: 'g', calories: 150, protein: 3, carbs: 13, fat: 9, fibre: 4 },
+  { label: 'Mixed Veg Curry', quantity: 150, unit: 'g', calories: 170, protein: 4, carbs: 18, fat: 9, fibre: 4 },
+  { label: 'Paneer Butter Masala', quantity: 150, unit: 'g', calories: 320, protein: 13, carbs: 12, fat: 25, fibre: 2 },
+  { label: 'Dal Makhani', quantity: 150, unit: 'g', calories: 280, protein: 10, carbs: 25, fat: 16, fibre: 6 },
+  { label: 'Kadhi', quantity: 150, unit: 'g', calories: 150, protein: 5, carbs: 12, fat: 9, fibre: 1 },
+  { label: 'Vegetable Pulao', quantity: 150, unit: 'g', calories: 250, protein: 5, carbs: 42, fat: 7, fibre: 3 },
+  { label: 'Gobi Manchurian', quantity: 150, unit: 'g', calories: 260, protein: 6, carbs: 28, fat: 13, fibre: 3 },
+  { label: 'Samosa', quantity: 1, unit: 'piece', calories: 150, protein: 3, carbs: 17, fat: 8, fibre: 1.5 },
+  { label: 'Pakora', quantity: 100, unit: 'g', calories: 250, protein: 6, carbs: 24, fat: 15, fibre: 3 },
+  { label: 'Chicken Curry', quantity: 150, unit: 'g', calories: 280, protein: 22, carbs: 8, fat: 18, fibre: 1.5 },
+  { label: 'Butter Chicken', quantity: 150, unit: 'g', calories: 350, protein: 20, carbs: 10, fat: 25, fibre: 1 },
+  { label: 'Chicken Biryani', quantity: 200, unit: 'g', calories: 400, protein: 18, carbs: 48, fat: 15, fibre: 2 },
+  { label: 'Mutton Curry', quantity: 150, unit: 'g', calories: 320, protein: 22, carbs: 6, fat: 22, fibre: 1 },
+  { label: 'Fish Curry', quantity: 150, unit: 'g', calories: 220, protein: 20, carbs: 6, fat: 13, fibre: 1 },
+  { label: 'Egg Curry', quantity: 150, unit: 'g', calories: 220, protein: 12, carbs: 8, fat: 16, fibre: 1.5 },
+  { label: 'Chicken Tikka', quantity: 100, unit: 'g', calories: 190, protein: 24, carbs: 3, fat: 9, fibre: 0.5 },
+  { label: 'Tandoori Chicken', quantity: 100, unit: 'g', calories: 180, protein: 25, carbs: 2, fat: 8, fibre: 0 },
+  { label: 'Keema', quantity: 150, unit: 'g', calories: 300, protein: 20, carbs: 8, fat: 21, fibre: 1 },
+  { label: 'Prawn Curry', quantity: 150, unit: 'g', calories: 210, protein: 18, carbs: 7, fat: 12, fibre: 1 },
+  { label: 'Vada Pav', quantity: 1, unit: 'piece', calories: 290, protein: 6, carbs: 40, fat: 12, fibre: 3 },
+  { label: 'Pav Bhaji', quantity: 200, unit: 'g', calories: 400, protein: 8, carbs: 55, fat: 16, fibre: 6 },
+  { label: 'Gulab Jamun', quantity: 1, unit: 'piece', calories: 150, protein: 2, carbs: 20, fat: 7, fibre: 0.2 },
+  { label: 'Besan Ladoo', quantity: 1, unit: 'piece', calories: 140, protein: 3, carbs: 15, fat: 8, fibre: 1 },
+];
+
 const initialData: LifeData = {
   tasks: [],
   expenses: [],
   foods: [],
-  foodDatabase: [],
+  foodDatabase: defaultFoodDatabase,
   weight: 0,
   weightEntries: [],
   habits: [],
   categories: ['Food', 'Shopping', 'Rent', 'Fuel', 'Entertainment', 'Bills', 'Health', 'Travel', 'Miscellaneous'],
   goals: { calories: 2100, protein: 120, carbs: 250, fat: 70, fibre: 30, dailySpend: 60 },
 };
+
+function mergeFoodDatabase(stored: FoodDatabaseEntry[], defaults: FoodDatabaseEntry[]): FoodDatabaseEntry[] {
+  const existingLabels = new Set(stored.map((item) => item.label.toLowerCase()));
+  const missing = defaults.filter((item) => !existingLabels.has(item.label.toLowerCase()));
+  return [...stored, ...missing];
+}
 
 function normalizeTask(task: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
   const completed = Boolean(task.completed);
@@ -83,7 +143,7 @@ function readStored(): LifeData {
       tasks: (stored.tasks ?? initialData.tasks).map(normalizeTask),
       expenses: (stored.expenses ?? initialData.expenses).map((expense) => ({ ...expense, date: expense.date.startsWith('Today') ? today : expense.date.startsWith('Yesterday') ? dateKey(new Date(Date.now() - 86400000)) : expense.date })),
       foods: (stored.foods ?? initialData.foods).map((food) => ({ ...food, date: food.date ?? today })),
-      foodDatabase: stored.foodDatabase ?? initialData.foodDatabase,
+      foodDatabase: mergeFoodDatabase(stored.foodDatabase ?? [], defaultFoodDatabase),
       weightEntries: stored.weightEntries ?? initialData.weightEntries,
       categories: stored.categories ?? initialData.categories,
       goals: { ...initialData.goals, ...(stored.goals ?? {}) },

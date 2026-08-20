@@ -25,7 +25,7 @@ type View = 'dashboard' | 'tasks' | 'expenses' | 'nutrition' | 'analytics' | 'se
 type Modal = 'task' | 'expense' | 'food' | 'weight' | 'goals' | 'sheets' | null;
 const today = dateKey();
 const todayLabel = new Intl.DateTimeFormat('en-GB', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
-const money = (value: number) => `$${value.toFixed(2)}`;
+const money = (value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 const formatDate = (value: string) => value === today ? 'Today' : value === dateKey(new Date(Date.now() - 86400000)) ? 'Yesterday' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`));
 const recurrenceLabel = (value: Recurrence) => value === 'none' ? 'One-time' : value[0].toUpperCase() + value.slice(1);
 
