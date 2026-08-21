@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { pullFromSheets, pushToSheets, SheetsSyncError, type SheetsConfig, type SheetsSnapshot } from '@/lib/sheetsClient';
 
-export type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+export type Recurrence = 'none' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 export type Task = {
   id: string;
   title: string;
@@ -321,11 +321,11 @@ export function useLifeTracker() {
     disconnectSheets,
     pullSheetsNow,
     pushSheetsNow,
-    toggleTask: (id: string) => update((current) => ({
+    toggleTask: (id: string, date = today) => update((current) => ({
       ...current,
       tasks: current.tasks.map((task) => {
         if (task.id !== id) return task;
-        const completedDates = task.completedDates.includes(today) ? task.completedDates.filter((date) => date !== today) : [...task.completedDates, today];
+        const completedDates = task.completedDates.includes(date) ? task.completedDates.filter((entry) => entry !== date) : [...task.completedDates, date];
         const streak = calculateStreak(completedDates);
         return { ...task, completed: completedDates.includes(today), completedDates, currentStreak: streak.current, longestStreak: Math.max(task.longestStreak, streak.longest) };
       }),
@@ -333,10 +333,10 @@ export function useLifeTracker() {
     addTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt' | 'completedDates' | 'currentStreak' | 'longestStreak'>) => update((current) => ({ ...current, tasks: [...current.tasks, normalizeTask({ ...task, id: `t${Date.now()}`, completed: false })] })),
     updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'due' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => update((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, ...patch } : task) })),
     deleteTask: (id: string) => update((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id) })),
-    addExpense: (expense: Omit<Expense, 'id' | 'date'>) => update((current) => ({ ...current, expenses: [{ ...expense, id: `e${Date.now()}`, date: today }, ...current.expenses], categories: current.categories.includes(expense.category) ? current.categories : [...current.categories, expense.category] })),
-    updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount'>>) => update((current) => ({ ...current, expenses: current.expenses.map((expense) => expense.id === id ? { ...expense, ...patch } : expense), categories: patch.category && !current.categories.includes(patch.category) ? [...current.categories, patch.category] : current.categories })),
+    addExpense: (expense: Omit<Expense, 'id' | 'date'>, date = today) => update((current) => ({ ...current, expenses: [{ ...expense, id: `e${Date.now()}`, date }, ...current.expenses], categories: current.categories.includes(expense.category) ? current.categories : [...current.categories, expense.category] })),
+    updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount' | 'date'>>) => update((current) => ({ ...current, expenses: current.expenses.map((expense) => expense.id === id ? { ...expense, ...patch } : expense), categories: patch.category && !current.categories.includes(patch.category) ? [...current.categories, patch.category] : current.categories })),
     deleteExpense: (id: string) => update((current) => ({ ...current, expenses: current.expenses.filter((expense) => expense.id !== id) })),
-    addFood: (food: Omit<Food, 'id' | 'time' | 'date'>) => update((current) => ({ ...current, foods: [...current.foods, { ...food, id: `f${Date.now()}`, time: new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()), date: today }] })),
+    addFood: (food: Omit<Food, 'id' | 'time' | 'date'>, date = today) => update((current) => ({ ...current, foods: [...current.foods, { ...food, id: `f${Date.now()}`, time: new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()), date }] })),
     addFoodDatabase: (food: FoodDatabaseEntry) => update((current) => ({ ...current, foodDatabase: [...current.foodDatabase.filter((item) => item.label.toLowerCase() !== food.label.toLowerCase()), food] })),
     addWeight: (weight: number, date = today) => update((current) => ({ ...current, weight, weightEntries: [...current.weightEntries.filter((entry) => entry.date !== date), { id: `w${Date.now()}`, date, weight }].sort((a, b) => a.date.localeCompare(b.date)) })),
     updateGoals: (goals: Goals) => update((current) => ({ ...current, goals })),
