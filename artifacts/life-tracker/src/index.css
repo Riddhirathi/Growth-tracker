@@ -168,6 +168,9 @@ button { cursor: pointer; }
 .filter-tabs { display: flex; gap: 4px; background: #eae1d8; padding: 4px; }
 .filter-tab { border: 0; background: transparent; padding: 8px 13px; color: #806e6f; font-size: 12px; font-weight: 700; }
 .filter-tab.active { background: #fff7ef; color: #543f4b; box-shadow: 0 1px 2px rgba(49,32,41,.08); }
+.weekday-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.weekday-chip { border: 1px solid #eae1d8; border-radius: 8px; background: #fff7ef; color: #806e6f; padding: 8px 12px; font-size: 12px; font-weight: 700; transition: background .2s, color .2s, border-color .2s; }
+.weekday-chip.active { background: #ee7c48; border-color: #ee7c48; color: #fff7ef; }
 .primary-button { border: 0; border-radius: 9px; min-height: 39px; padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: #ee7c48; color: #fff7ef; font-weight: 700; font-size: 12px; transition: background .2s, transform .2s; }
 .primary-button:hover { background: #d9683b; transform: translateY(-1px); }
 .data-table { width: 100%; border-collapse: collapse; }

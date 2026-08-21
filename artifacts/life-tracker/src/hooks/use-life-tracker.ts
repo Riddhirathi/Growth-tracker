@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { pullFromSheets, pushToSheets, SheetsSyncError, type SheetsConfig, type SheetsSnapshot } from '@/lib/sheetsClient';
 
-export type Recurrence = 'none' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+export type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+export const WEEKDAYS: Weekday[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+export type Recurrence = Weekday[];
 export type Task = {
   id: string;
   title: string;
@@ -114,6 +116,11 @@ function mergeFoodDatabase(stored: FoodDatabaseEntry[], defaults: FoodDatabaseEn
   return [...stored, ...missing];
 }
 
+function normalizeRecurrence(value: unknown): Recurrence {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' && value && value !== 'none' ? [value] : [];
+  return raw.filter((day): day is Weekday => WEEKDAYS.includes(day as Weekday));
+}
+
 function normalizeTask(task: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
   const completed = Boolean(task.completed);
   return {
@@ -123,7 +130,7 @@ function normalizeTask(task: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
     due: task.due ?? 'Today',
     completed,
     priority: task.priority ?? 'medium',
-    recurrence: task.recurrence ?? 'none',
+    recurrence: normalizeRecurrence(task.recurrence),
     recurrenceValue: task.recurrenceValue,
     completedDates: task.completedDates ?? (completed ? [today] : []),
     currentStreak: task.currentStreak ?? (completed ? 1 : 0),

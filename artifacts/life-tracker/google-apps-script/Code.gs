@@ -30,7 +30,7 @@ const SHEETS = {
 
 const FIELD_TYPES = {
   id: 'string', title: 'string', notes: 'string', due: 'string', completed: 'boolean',
-  priority: 'string', recurrence: 'string', recurrenceValue: 'number', completedDates: 'json',
+  priority: 'string', recurrence: 'json', recurrenceValue: 'number', completedDates: 'json',
   currentStreak: 'number', longestStreak: 'number', createdAt: 'text',
   label: 'string', category: 'string', amount: 'number', date: 'text',
   calories: 'number', protein: 'number', carbs: 'number', fat: 'number', fibre: 'number', time: 'text',
