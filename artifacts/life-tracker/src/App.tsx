@@ -197,7 +197,15 @@ function ModalForm({ modal, close, editingTask, editingExpense, addTask, updateT
   if (!modal) return null;
   const title = modal === 'task' ? (editingTask ? 'Edit task' : 'Add a task') : modal === 'expense' ? (editingExpense ? 'Edit expense' : 'Log an expense') : modal === 'food' ? 'Add a food moment' : modal === 'weight' ? 'Log weight' : modal === 'sheets' ? 'Connect Google Sheets' : 'Nutrition goals';
   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  const findFood = (value: string) => { update('label', value); const match = foodDatabase.find((food) => food.label.toLowerCase() === value.trim().toLowerCase()); setFoodMatch(match ?? null); };
+  const findFood = (value: string) => {
+    const match = foodDatabase.find((food) => food.label.toLowerCase() === value.trim().toLowerCase());
+    setFoodMatch(match ?? null);
+    setForm((current) => ({
+      ...current,
+      label: value,
+      ...(match ? { calories: String(match.calories), protein: String(match.protein), carbs: String(match.carbs), fat: String(match.fat), fibre: String(match.fibre), unit: match.unit, quantity: String(match.quantity) } : {}),
+    }));
+  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (modal === 'sheets') {
