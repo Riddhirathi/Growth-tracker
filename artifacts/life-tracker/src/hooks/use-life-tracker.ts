@@ -8,7 +8,6 @@ export type Task = {
   id: string;
   title: string;
   notes?: string;
-  due: 'Today' | 'Tomorrow' | 'This week';
   completed: boolean;
   priority: 'high' | 'medium' | 'low';
   recurrence: Recurrence;
@@ -18,6 +17,13 @@ export type Task = {
   longestStreak: number;
   createdAt: string;
 };
+
+const WEEKDAY_BY_INDEX: Weekday[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+export const weekdayOf = (date: string): Weekday => WEEKDAY_BY_INDEX[new Date(`${date}T12:00:00`).getDay()];
+export function isTaskScheduledOn(task: Task, date: string): boolean {
+  if (date < task.createdAt) return false;
+  return task.recurrence.length ? task.recurrence.includes(weekdayOf(date)) : task.createdAt === date;
+}
 export type Expense = { id: string; label: string; category: string; amount: number; date: string };
 export type Food = { id: string; label: string; calories: number; protein: number; carbs: number; fat: number; fibre: number; time: string; date: string };
 export type FoodDatabaseEntry = Omit<Food, 'id' | 'time' | 'date'> & { quantity: number; unit: 'g' | 'ml' | 'piece' };
@@ -127,7 +133,6 @@ function normalizeTask(task: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
     id: task.id,
     title: task.title,
     notes: task.notes,
-    due: task.due ?? 'Today',
     completed,
     priority: task.priority ?? 'medium',
     recurrence: normalizeRecurrence(task.recurrence),
@@ -338,7 +343,7 @@ export function useLifeTracker() {
       }),
     })),
     addTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt' | 'completedDates' | 'currentStreak' | 'longestStreak'>) => update((current) => ({ ...current, tasks: [...current.tasks, normalizeTask({ ...task, id: `t${Date.now()}`, completed: false })] })),
-    updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'due' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => update((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, ...patch } : task) })),
+    updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => update((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, ...patch } : task) })),
     deleteTask: (id: string) => update((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id) })),
     addExpense: (expense: Omit<Expense, 'id' | 'date'>, date = today) => update((current) => ({ ...current, expenses: [{ ...expense, id: `e${Date.now()}`, date }, ...current.expenses], categories: current.categories.includes(expense.category) ? current.categories : [...current.categories, expense.category] })),
     updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount' | 'date'>>) => update((current) => ({ ...current, expenses: current.expenses.map((expense) => expense.id === id ? { ...expense, ...patch } : expense), categories: patch.category && !current.categories.includes(patch.category) ? [...current.categories, patch.category] : current.categories })),

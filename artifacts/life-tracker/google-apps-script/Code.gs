@@ -20,7 +20,7 @@
 const TOKEN = PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN');
 
 const SHEETS = {
-  tasks: { name: 'Tasks', headers: ['id', 'title', 'notes', 'due', 'completed', 'priority', 'recurrence', 'recurrenceValue', 'completedDates', 'currentStreak', 'longestStreak', 'createdAt'] },
+  tasks: { name: 'Tasks', headers: ['id', 'title', 'notes', 'completed', 'priority', 'recurrence', 'recurrenceValue', 'completedDates', 'currentStreak', 'longestStreak', 'createdAt'] },
   expenses: { name: 'Expenses', headers: ['id', 'label', 'category', 'amount', 'date'] },
   foods: { name: 'Foods', headers: ['id', 'label', 'calories', 'protein', 'carbs', 'fat', 'fibre', 'time', 'date'] },
   foodDatabase: { name: 'FoodDatabase', headers: ['label', 'quantity', 'unit', 'calories', 'protein', 'carbs', 'fat', 'fibre'] },
@@ -29,7 +29,7 @@ const SHEETS = {
 };
 
 const FIELD_TYPES = {
-  id: 'string', title: 'string', notes: 'string', due: 'string', completed: 'boolean',
+  id: 'string', title: 'string', notes: 'string', completed: 'boolean',
   priority: 'string', recurrence: 'json', recurrenceValue: 'number', completedDates: 'json',
   currentStreak: 'number', longestStreak: 'number', createdAt: 'text',
   label: 'string', category: 'string', amount: 'number', date: 'text',
