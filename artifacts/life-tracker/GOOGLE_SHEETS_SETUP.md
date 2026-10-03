@@ -10,6 +10,11 @@ private backup/sync target you own — no third-party server involved. This take
 2. Name it whatever you like (e.g. "Personal Tracker Data"). You don't need to create any tabs —
    the script creates `Tasks`, `Expenses`, `Foods`, `FoodDatabase`, `Weight`, and `Settings`
    tabs automatically on first use.
+3. It also creates a `Summary <year>` tab per year you have expenses in (e.g. `Summary 2026`) —
+   a read-only recap with one column per month and one row per category, regenerated from the
+   `Expenses` tab on every sync. Edits made directly to a `Summary` tab are not read back by the
+   app and will be overwritten on the next sync; log expenses through the app or the `Expenses`
+   tab itself.
 
 ## 2. Add the script
 

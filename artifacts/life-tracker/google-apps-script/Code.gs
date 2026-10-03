@@ -20,7 +20,11 @@
 const TOKEN = PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN');
 
 const SHEETS = {
-  tasks: { name: 'Tasks', headers: ['id', 'title', 'notes', 'completed', 'priority', 'recurrence', 'recurrenceValue', 'completedDates', 'currentStreak', 'longestStreak', 'createdAt'] },
+  // New columns must always be appended at the end, never inserted in the middle — readRows/
+  // writeRows address columns positionally, and getSheet() migrates older sheets by appending
+  // any headers they're missing after their existing ones. Inserting a field mid-list would
+  // silently misalign every column after it on a sheet that already has data.
+  tasks: { name: 'Tasks', headers: ['id', 'title', 'notes', 'completed', 'priority', 'recurrence', 'recurrenceValue', 'completedDates', 'currentStreak', 'longestStreak', 'createdAt', 'icon', 'endDate'] },
   expenses: { name: 'Expenses', headers: ['id', 'label', 'category', 'amount', 'date'] },
   foods: { name: 'Foods', headers: ['id', 'label', 'calories', 'protein', 'carbs', 'fat', 'fibre', 'time', 'date'] },
   foodDatabase: { name: 'FoodDatabase', headers: ['label', 'quantity', 'unit', 'calories', 'protein', 'carbs', 'fat', 'fibre'] },
@@ -29,9 +33,9 @@ const SHEETS = {
 };
 
 const FIELD_TYPES = {
-  id: 'string', title: 'string', notes: 'string', completed: 'boolean',
+  id: 'string', title: 'string', notes: 'string', icon: 'string', completed: 'boolean',
   priority: 'string', recurrence: 'json', recurrenceValue: 'number', completedDates: 'json',
-  currentStreak: 'number', longestStreak: 'number', createdAt: 'text',
+  currentStreak: 'number', longestStreak: 'number', createdAt: 'text', endDate: 'text',
   label: 'string', category: 'string', amount: 'number', date: 'text',
   calories: 'number', protein: 'number', carbs: 'number', fat: 'number', fibre: 'number', time: 'text',
   quantity: 'number', unit: 'string', weight: 'number',
@@ -104,28 +108,109 @@ function pushAll(data) {
     { key: 'habits', value: data.habits || [] },
     { key: 'goals', value: data.goals || {} },
   ]);
+  updateExpenseSummaries(data.expenses || []);
+}
+
+var MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Human-readable recap, separate from the Expenses sheet that the app actually reads back.
+ * One sheet per calendar year ("Summary 2026"), one column per month plus a Total column, one
+ * row per category plus a Total row. Fully regenerated from the Expenses rows on every push, so
+ * it always matches — editing it directly in Sheets has no effect and will be overwritten.
+ */
+function updateExpenseSummaries(expenses) {
+  var byYear = {};
+  expenses.forEach(function (item) {
+    var year = String(item.date || '').slice(0, 4);
+    if (!/^\d{4}$/.test(year)) return;
+    if (!byYear[year]) byYear[year] = [];
+    byYear[year].push(item);
+  });
+  Object.keys(byYear).sort().forEach(function (year) {
+    writeExpenseSummarySheet(year, byYear[year]);
+  });
+}
+
+function writeExpenseSummarySheet(year, yearExpenses) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var name = 'Summary ' + year;
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  sheet.clear();
+
+  var categories = [];
+  yearExpenses.forEach(function (item) {
+    if (categories.indexOf(item.category) === -1) categories.push(item.category);
+  });
+  categories.sort();
+
+  var grid = {};
+  categories.forEach(function (category) { grid[category] = zeros(12); });
+  yearExpenses.forEach(function (item) {
+    var month = Number(String(item.date).slice(5, 7)) - 1;
+    if (month < 0 || month > 11) return;
+    if (!grid[item.category]) grid[item.category] = zeros(12);
+    grid[item.category][month] += Number(item.amount) || 0;
+  });
+
+  var header = ['Category'].concat(MONTH_LABELS, ['Total']);
+  var rows = [header];
+  var monthTotals = zeros(12);
+  var grandTotal = 0;
+  categories.forEach(function (category) {
+    var monthly = grid[category];
+    var rowTotal = 0;
+    for (var index = 0; index < 12; index += 1) { monthTotals[index] += monthly[index]; rowTotal += monthly[index]; }
+    grandTotal += rowTotal;
+    rows.push([category].concat(monthly, [rowTotal]));
+  });
+  rows.push(['Total'].concat(monthTotals, [grandTotal]));
+
+  sheet.getRange(1, 1, rows.length, header.length).setValues(rows);
+  sheet.getRange(1, 1, 1, header.length).setFontWeight('bold');
+  sheet.getRange(rows.length, 1, 1, header.length).setFontWeight('bold');
+  if (rows.length > 1) sheet.getRange(2, 2, rows.length - 1, 13).setNumberFormat('#,##0.00');
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(1);
+  sheet.autoResizeColumns(1, header.length);
+}
+
+function zeros(length) {
+  var out = [];
+  for (var index = 0; index < length; index += 1) out.push(0);
+  return out;
 }
 
 function getSheet(defKey) {
   var def = SHEETS[defKey];
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(def.name);
-  var isNew = false;
+  var newColumns = [];
   if (!sheet) {
     sheet = ss.insertSheet(def.name);
-    isNew = true;
-  }
-  if (sheet.getLastRow() === 0) {
     sheet.appendRow(def.headers);
-    isNew = true;
+    newColumns = def.headers;
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(def.headers);
+    newColumns = def.headers;
+  } else {
+    // Sheet already has data from an older version of this script: append any headers it is
+    // missing (e.g. a column added later, like Tasks.endDate) instead of leaving them unlabeled
+    // and out of order. Existing rows keep every value they already have.
+    var existingHeaders = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+    var missing = def.headers.filter(function (header) { return existingHeaders.indexOf(header) === -1; });
+    if (missing.length) {
+      sheet.getRange(1, existingHeaders.length + 1, 1, missing.length).setValues([missing]);
+      newColumns = missing;
+    }
   }
-  if (isNew) {
-    def.headers.forEach(function (header, index) {
-      if (FIELD_TYPES[header] !== 'number' && FIELD_TYPES[header] !== 'boolean') {
-        sheet.getRange(1, index + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
-      }
-    });
-  }
+  newColumns.forEach(function (header) {
+    var index = def.headers.indexOf(header);
+    if (FIELD_TYPES[header] !== 'number' && FIELD_TYPES[header] !== 'boolean') {
+      sheet.getRange(1, index + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    }
+  });
   return sheet;
 }
 

@@ -8,6 +8,7 @@ export type Task = {
   id: string;
   title: string;
   notes?: string;
+  icon?: string;
   completed: boolean;
   priority: 'high' | 'medium' | 'low';
   recurrence: Recurrence;
@@ -16,13 +17,33 @@ export type Task = {
   currentStreak: number;
   longestStreak: number;
   createdAt: string;
+  /** Last date (inclusive) this task is still active. Set when a recurring task is "stopped" —
+   *  everything before and including it stays untouched (history, streaks, reports); the task
+   *  simply stops being scheduled from the day after. Undefined/null = still active indefinitely. */
+  endDate?: string | null;
 };
 
 const WEEKDAY_BY_INDEX: Weekday[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 export const weekdayOf = (date: string): Weekday => WEEKDAY_BY_INDEX[new Date(`${date}T12:00:00`).getDay()];
-export function isTaskScheduledOn(task: Task, date: string): boolean {
+export const addDays = (date: string, days: number) => dateKey(new Date(new Date(`${date}T12:00:00`).getTime() + days * 86400000));
+export const isTaskStopped = (task: Task, asOf = dateKey()) => Boolean(task.endDate && task.endDate < asOf);
+
+/** Pure recurrence+range check: was this task actually *due* on this date, independent of history. */
+function isDueOn(task: Task, date: string): boolean {
   if (date < task.createdAt) return false;
+  if (task.endDate && date > task.endDate) return false;
   return task.recurrence.length ? task.recurrence.includes(weekdayOf(date)) : task.createdAt === date;
+}
+export { isDueOn };
+
+/**
+ * Should this task appear on this date? True if it was due (current recurrence/range), OR if it
+ * was actually completed that day in the past. The completedDates fallback matters: editing a
+ * task's repeat days, or stopping it, must never make a day that was already checked off vanish
+ * from history, day views, or reports.
+ */
+export function isTaskScheduledOn(task: Task, date: string): boolean {
+  return isDueOn(task, date) || task.completedDates.includes(date);
 }
 export type Expense = { id: string; label: string; category: string; amount: number; date: string };
 export type Food = { id: string; label: string; calories: number; protein: number; carbs: number; fat: number; fibre: number; time: string; date: string };
@@ -133,6 +154,7 @@ function normalizeTask(task: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
     id: task.id,
     title: task.title,
     notes: task.notes,
+    icon: task.icon || undefined,
     completed,
     priority: task.priority ?? 'medium',
     recurrence: normalizeRecurrence(task.recurrence),
@@ -141,6 +163,7 @@ function normalizeTask(task: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
     currentStreak: task.currentStreak ?? (completed ? 1 : 0),
     longestStreak: task.longestStreak ?? (completed ? 1 : 0),
     createdAt: task.createdAt ?? today,
+    endDate: task.endDate || undefined,
   };
 }
 
@@ -211,16 +234,34 @@ function applySnapshot(current: LifeData, snapshot: SheetsSnapshot): LifeData {
   };
 }
 
-function calculateStreak(dates: string[]) {
-  const completed = new Set(dates);
+/**
+ * Streaks count consecutive *due* occurrences (per the task's own recurrence), not raw calendar
+ * days — a Mon/Wed/Fri habit shouldn't look "broken" on a Tuesday. Today only breaks a streak once
+ * it's past and still undone; a due-but-not-yet-done today is simply not counted yet.
+ */
+function calculateStreak(task: Task, completedDates: string[]) {
+  const completed = new Set(completedDates);
+  const boundary = task.endDate && task.endDate < today ? task.endDate : today;
+
   let current = 0;
-  for (let index = 0; completed.has(dateKey(new Date(Date.now() - index * 86400000))); index += 1) current += 1;
+  let cursor = boundary;
+  if (isDueOn(task, cursor) && !completed.has(cursor)) cursor = addDays(cursor, -1);
+  while (cursor >= task.createdAt) {
+    if (!isDueOn(task, cursor)) { cursor = addDays(cursor, -1); continue; }
+    if (!completed.has(cursor)) break;
+    current += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  const lastCompleted = [...completed].sort().at(-1);
+  const scanEnd = lastCompleted && lastCompleted > boundary ? lastCompleted : boundary;
   let longest = 0;
   let run = 0;
-  [...completed].sort().forEach((date, index, all) => {
-    run = index > 0 && (new Date(`${date}T00:00:00`).getTime() - new Date(`${all[index - 1]}T00:00:00`).getTime()) === 86400000 ? run + 1 : 1;
+  for (let date = task.createdAt; date <= scanEnd; date = addDays(date, 1)) {
+    if (!isDueOn(task, date)) continue;
+    run = completed.has(date) ? run + 1 : 0;
     longest = Math.max(longest, run);
-  });
+  }
   return { current, longest };
 }
 
@@ -338,12 +379,28 @@ export function useLifeTracker() {
       tasks: current.tasks.map((task) => {
         if (task.id !== id) return task;
         const completedDates = task.completedDates.includes(date) ? task.completedDates.filter((entry) => entry !== date) : [...task.completedDates, date];
-        const streak = calculateStreak(completedDates);
+        const streak = calculateStreak(task, completedDates);
         return { ...task, completed: completedDates.includes(today), completedDates, currentStreak: streak.current, longestStreak: Math.max(task.longestStreak, streak.longest) };
       }),
     })),
     addTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt' | 'completedDates' | 'currentStreak' | 'longestStreak'>) => update((current) => ({ ...current, tasks: [...current.tasks, normalizeTask({ ...task, id: `t${Date.now()}`, completed: false })] })),
-    updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => update((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, ...patch } : task) })),
+    updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'icon' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => update((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) => {
+        if (task.id !== id) return task;
+        const next = { ...task, ...patch };
+        const streak = calculateStreak(next, next.completedDates);
+        return { ...next, currentStreak: streak.current, longestStreak: Math.max(task.longestStreak, streak.longest) };
+      }),
+    })),
+    /** Stops a recurring task from `endDate` onward. All history (completedDates, streaks) is
+     *  left exactly as-is — it keeps showing in reports and in the Stopped list. Pass the task's
+     *  own createdAt-or-later date; anything before it is unaffected. */
+    stopTask: (id: string, endDate: string) => update((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, endDate } : task) })),
+    /** Clears a task's stop date so it resumes being scheduled going forward. History is untouched. */
+    reactivateTask: (id: string) => update((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, endDate: undefined } : task) })),
+    /** Permanently removes the task AND every bit of its history (completions, streaks). Unlike
+     *  stopTask, this cannot be undone and the task will no longer appear anywhere, including past reports. */
     deleteTask: (id: string) => update((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id) })),
     addExpense: (expense: Omit<Expense, 'id' | 'date'>, date = today) => update((current) => ({ ...current, expenses: [{ ...expense, id: `e${Date.now()}`, date }, ...current.expenses], categories: current.categories.includes(expense.category) ? current.categories : [...current.categories, expense.category] })),
     updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount' | 'date'>>) => update((current) => ({ ...current, expenses: current.expenses.map((expense) => expense.id === id ? { ...expense, ...patch } : expense), categories: patch.category && !current.categories.includes(patch.category) ? [...current.categories, patch.category] : current.categories })),
