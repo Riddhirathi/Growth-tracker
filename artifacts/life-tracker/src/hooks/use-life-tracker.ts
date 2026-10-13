@@ -46,7 +46,7 @@ export function isTaskScheduledOn(task: Task, date: string): boolean {
   return isDueOn(task, date) || task.completedDates.includes(date);
 }
 export type Expense = { id: string; label: string; category: string; amount: number; date: string };
-export type Food = { id: string; label: string; calories: number; protein: number; carbs: number; fat: number; fibre: number; time: string; date: string };
+export type Food = { id: string; label: string; calories: number; protein: number; carbs: number; fat: number; fibre: number; time: string; date: string; quantity?: number; unit?: 'g' | 'ml' | 'piece' };
 export type FoodDatabaseEntry = Omit<Food, 'id' | 'time' | 'date'> & { quantity: number; unit: 'g' | 'ml' | 'piece' };
 export type WeightEntry = { id: string; date: string; weight: number };
 export type Goals = { calories: number; protein: number; carbs: number; fat: number; fibre: number; dailySpend: number };
@@ -406,6 +406,8 @@ export function useLifeTracker() {
     updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount' | 'date'>>) => update((current) => ({ ...current, expenses: current.expenses.map((expense) => expense.id === id ? { ...expense, ...patch } : expense), categories: patch.category && !current.categories.includes(patch.category) ? [...current.categories, patch.category] : current.categories })),
     deleteExpense: (id: string) => update((current) => ({ ...current, expenses: current.expenses.filter((expense) => expense.id !== id) })),
     addFood: (food: Omit<Food, 'id' | 'time' | 'date'>, date = today) => update((current) => ({ ...current, foods: [...current.foods, { ...food, id: `f${Date.now()}`, time: new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()), date }] })),
+    updateFood: (id: string, patch: Partial<Omit<Food, 'id' | 'time'>>) => update((current) => ({ ...current, foods: current.foods.map((food) => food.id === id ? { ...food, ...patch } : food) })),
+    deleteFood: (id: string) => update((current) => ({ ...current, foods: current.foods.filter((food) => food.id !== id) })),
     addFoodDatabase: (food: FoodDatabaseEntry) => update((current) => ({ ...current, foodDatabase: [...current.foodDatabase.filter((item) => item.label.toLowerCase() !== food.label.toLowerCase()), food] })),
     addWeight: (weight: number, date = today) => update((current) => ({ ...current, weight, weightEntries: [...current.weightEntries.filter((entry) => entry.date !== date), { id: `w${Date.now()}`, date, weight }].sort((a, b) => a.date.localeCompare(b.date)) })),
     updateGoals: (goals: Goals) => update((current) => ({ ...current, goals })),

@@ -26,7 +26,7 @@ const SHEETS = {
   // silently misalign every column after it on a sheet that already has data.
   tasks: { name: 'Tasks', headers: ['id', 'title', 'notes', 'completed', 'priority', 'recurrence', 'recurrenceValue', 'completedDates', 'currentStreak', 'longestStreak', 'createdAt', 'icon', 'endDate'] },
   expenses: { name: 'Expenses', headers: ['id', 'label', 'category', 'amount', 'date'] },
-  foods: { name: 'Foods', headers: ['id', 'label', 'calories', 'protein', 'carbs', 'fat', 'fibre', 'time', 'date'] },
+  foods: { name: 'Foods', headers: ['id', 'label', 'calories', 'protein', 'carbs', 'fat', 'fibre', 'time', 'date', 'quantity', 'unit'] },
   foodDatabase: { name: 'FoodDatabase', headers: ['label', 'quantity', 'unit', 'calories', 'protein', 'carbs', 'fat', 'fibre'] },
   weightEntries: { name: 'Weight', headers: ['id', 'date', 'weight'] },
   settings: { name: 'Settings', headers: ['key', 'value'] },

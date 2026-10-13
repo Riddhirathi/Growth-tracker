@@ -29,7 +29,7 @@ import { pullFromSheets, type SheetsConfig } from '@/lib/sheetsClient';
 
 const queryClient = new QueryClient();
 type View = 'dashboard' | 'tasks' | 'expenses' | 'nutrition' | 'analytics' | 'settings';
-type Modal = 'task' | 'expense' | 'food' | 'weight' | 'goals' | 'sheets' | null;
+type Modal = 'task' | 'expense' | 'food' | 'quickfood' | 'weight' | 'goals' | 'sheets' | null;
 type LifecycleAction = { task: Task; kind: 'stop' | 'delete' } | null;
 const today = dateKey();
 const todayLabel = new Intl.DateTimeFormat('en-GB', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
@@ -380,12 +380,149 @@ function ExpensesView({ data, openModal, editExpense, deleteExpense, profileName
   </div>;
 }
 
-function NutritionView({ data, openModal, profileName }: { data: ReturnType<typeof useLifeTracker>['data']; openModal: (modal: Modal) => void; profileName: string }) {
+const MACRO_ZERO = { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 };
+type MacroTotals = typeof MACRO_ZERO;
+const sumFoods = (foods: Food[]): MacroTotals => foods.reduce((acc, item) => ({ calories: acc.calories + item.calories, protein: acc.protein + item.protein, carbs: acc.carbs + item.carbs, fat: acc.fat + item.fat, fibre: acc.fibre + item.fibre }), MACRO_ZERO);
+const round1 = (value: number) => Math.round(value * 10) / 10;
+
+function formatQty(food: Food) {
+  if (!food.quantity) return '';
+  if (food.unit === 'piece') return `${food.quantity} ${food.quantity === 1 ? 'piece' : 'pieces'}`;
+  return `${food.quantity}${food.unit ?? ''}`;
+}
+
+function NutritionBars({ days, values, goal, unit, tone, labelOf, showValues = true }: { days: string[]; values: number[]; goal: number; unit: string; tone: 'protein' | 'calories'; labelOf: (day: string) => string; showValues?: boolean }) {
+  const max = Math.max(goal, ...values) * 1.18 || 1;
+  return <div className={`nbars ${tone} ${showValues ? '' : 'dense'}`}>
+    <div className="nbars-plot">
+      {goal > 0 && <div className="nbars-goal" style={{ bottom: `${(goal / max) * 100}%` }}><span>goal {goal}{unit}</span></div>}
+      {days.map((day, index) => {
+        const value = values[index];
+        return <div key={day} className={`nbars-col ${day === today ? 'current' : ''} ${goal > 0 && value >= goal ? 'hit' : ''} ${day > today ? 'future' : ''}`} title={`${formatDate(day)} · ${Math.round(value)}${unit}`}>
+          {showValues && <span className="nbars-val">{value ? Math.round(value) : ''}</span>}
+          <div className="nbars-bar" style={{ height: value ? `${Math.max(3, (value / max) * 100)}%` : '3px' }} />
+        </div>;
+      })}
+    </div>
+    <div className="nbars-axis">{days.map((day) => <span key={day} className={day === today ? 'current' : ''}>{labelOf(day)}</span>)}</div>
+  </div>;
+}
+
+function WeeklyProtein({ foods, goal }: { foods: Food[]; goal: number }) {
+  const { days } = weekRange(0);
+  const values = days.map((day) => sumFoods(foods.filter((food) => food.date === day)).protein);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const elapsed = days.filter((day) => day <= today);
+  const hits = elapsed.filter((_, index) => goal > 0 && values[index] >= goal).length;
+  return <Panel title="This week's protein" note={`${Math.round(total)}g so far · ${hits} of ${elapsed.length} day${elapsed.length === 1 ? '' : 's'} on goal`}>
+    <NutritionBars days={days} values={values} goal={goal} unit="g" tone="protein" labelOf={(day) => new Intl.DateTimeFormat('en', { weekday: 'short' }).format(new Date(`${day}T12:00:00`))} />
+  </Panel>;
+}
+
+function loggingStreak(foods: Food[]) {
+  const logged = new Set(foods.map((food) => food.date));
+  let cursor = logged.has(today) ? today : addDays(today, -1);
+  let streak = 0;
+  while (logged.has(cursor)) { streak += 1; cursor = addDays(cursor, -1); }
+  return streak;
+}
+
+function NutritionAnalytics({ foods, goals }: { foods: Food[]; goals: Goals }) {
+  const [mode, setMode] = useState<'week' | 'month'>('week');
+  const [offset, setOffset] = useState(0);
+  useEffect(() => setOffset(0), [mode]);
+  const isWeek = mode === 'week';
+  const week = weekRange(offset);
+  const month = monthRange(offset);
+  const days = isWeek ? week.days : month.days;
+  const rangeLabel = isWeek ? `${formatMonthDay(week.start)} – ${formatMonthDay(week.end)}` : new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(new Date(month.year, month.month, 1));
+  const perDay = days.map((day) => sumFoods(foods.filter((food) => food.date === day)));
+  const loggedIdx = days.map((_, index) => index).filter((index) => days[index] <= today && foods.some((food) => food.date === days[index]));
+  const logged = loggedIdx.map((index) => perDay[index]);
+  const avg = (key: keyof MacroTotals) => (logged.length ? logged.reduce((sum, item) => sum + item[key], 0) / logged.length : 0);
+  const proteinHits = logged.filter((item) => item.protein >= goals.protein).length;
+  const energy = { protein: avg('protein') * 4, carbs: avg('carbs') * 4, fat: avg('fat') * 9 };
+  const energyTotal = energy.protein + energy.carbs + energy.fat;
+  const share = (value: number) => (energyTotal ? (value / energyTotal) * 100 : 0);
+  const proteinEnd = share(energy.protein);
+  const carbsEnd = proteinEnd + share(energy.carbs);
+  const donut = energyTotal ? `conic-gradient(#3fa884 0 ${proteinEnd}%, #e2972f ${proteinEnd}% ${carbsEnd}%, #8a68c9 ${carbsEnd}% 100%)` : 'conic-gradient(hsl(var(--border)) 0 100%)';
+  const bestIdx = loggedIdx.reduce<number>((best, index) => (best < 0 || perDay[index].protein > perDay[best].protein ? index : best), -1);
+  const streak = loggingStreak(foods);
+  const goalRows = [
+    { key: 'calories', label: 'Calories', value: avg('calories'), goal: goals.calories, unit: ' kcal' },
+    { key: 'protein', label: 'Protein', value: avg('protein'), goal: goals.protein, unit: 'g' },
+    { key: 'carbs', label: 'Carbs', value: avg('carbs'), goal: goals.carbs, unit: 'g' },
+    { key: 'fat', label: 'Fat', value: avg('fat'), goal: goals.fat, unit: 'g' },
+    { key: 'fibre', label: 'Fibre', value: avg('fibre'), goal: goals.fibre, unit: 'g' },
+  ];
+  return <Panel title="Nutrition analytics" note="Gentle patterns, not report cards">
+    <div className="toolbar" style={{ marginBottom: 14 }}>
+      <div className="filter-tabs" role="tablist" aria-label="Analytics range">{(['week', 'month'] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={mode === value} className={`filter-tab ${mode === value ? 'active' : ''}`} onClick={() => setMode(value)} data-testid={`button-nutrition-analytics-${value}`}>{value === 'week' ? 'Weekly' : 'Monthly'}</button>)}</div>
+      <div className="report-range">
+        <button type="button" className="report-nav" onClick={() => setOffset((value) => value - 1)} aria-label="Previous period" data-testid="button-nutrition-analytics-prev"><ChevronLeft size={15} /></button>
+        <span className="report-range-label">{rangeLabel}</span>
+        <button type="button" className="report-nav" onClick={() => setOffset((value) => Math.min(0, value + 1))} disabled={offset >= 0} aria-label="Next period" data-testid="button-nutrition-analytics-next"><ChevronRight size={15} /></button>
+      </div>
+    </div>
+    {!logged.length ? <div className="empty-state"><Sparkles size={27} /><h3>Nothing logged {offset === 0 ? (isWeek ? 'this week' : 'this month') : 'in this period'}.</h3><p>Log a meal and your patterns will bloom here.</p></div> : <>
+      <div className="report-stats" style={{ marginTop: 0 }}>
+        <div className="report-stat"><strong>{Math.round(avg('calories'))}</strong><span>Avg kcal / day</span></div>
+        <div className="report-stat"><strong>{round1(avg('protein'))}g</strong><span>Avg protein</span></div>
+        <div className="report-stat"><strong>{proteinHits}/{logged.length}</strong><span>Protein goal days</span></div>
+        <div className="report-stat"><strong>{round1(avg('fibre'))}g</strong><span>Avg fibre</span></div>
+      </div>
+      <div className="na-grid">
+        <div>
+          <p className="panel-note" style={{ margin: '0 0 6px' }}>Calories per day</p>
+          <NutritionBars days={days} values={perDay.map((item) => item.calories)} goal={goals.calories} unit=" kcal" tone="calories" showValues={isWeek} labelOf={isWeek ? (day) => new Intl.DateTimeFormat('en', { weekday: 'narrow' }).format(new Date(`${day}T12:00:00`)) : (day) => String(Number(day.slice(-2)))} />
+        </div>
+        <div>
+          <p className="panel-note" style={{ margin: '0 0 10px' }}>Where your energy comes from</p>
+          <div className="na-donut-wrap">
+            <div className="na-donut" style={{ background: donut }}><b>{Math.round(share(energy.protein))}%<small>protein</small></b></div>
+            <div className="na-legend">
+              <span><i style={{ background: '#3fa884' }} />Protein<em>{Math.round(share(energy.protein))}%</em></span>
+              <span><i style={{ background: '#e2972f' }} />Carbs<em>{Math.round(share(energy.carbs))}%</em></span>
+              <span><i style={{ background: '#8a68c9' }} />Fat<em>{Math.round(share(energy.fat))}%</em></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p className="panel-note" style={{ margin: '22px 0 10px' }}>Daily average vs your guide</p>
+      <div className="macro-list">{goalRows.map((row) => <div key={row.key}><div className="macro-head"><span>{row.label}</span><b>{Math.round(row.value)}{row.unit} / {row.goal}{row.unit}</b></div><div className={`macro-bar ${row.key}`}><span style={{ width: `${Math.min(100, row.goal ? (row.value / row.goal) * 100 : 0)}%` }} /></div></div>)}</div>
+      <div className="na-chips">
+        {streak > 0 && <span className="na-chip"><Flame size={14} /> {streak}-day logging streak</span>}
+        {bestIdx >= 0 && perDay[bestIdx].protein > 0 && <span className="na-chip"><Sparkles size={14} /> Best protein day: {formatDate(days[bestIdx])} · {Math.round(perDay[bestIdx].protein)}g</span>}
+        <span className="na-chip"><Utensils size={14} /> {logged.length} day{logged.length === 1 ? '' : 's'} logged</span>
+      </div>
+    </>}
+  </Panel>;
+}
+
+function NutritionView({ data, openModal, editFood, deleteFood, profileName }: { data: ReturnType<typeof useLifeTracker>['data']; openModal: (modal: Modal) => void; editFood: (food: Food) => void; deleteFood: (id: string) => void; profileName: string }) {
   const [viewDate, setViewDate] = useState(today);
   const dayFoods = data.foods.filter((food) => food.date === viewDate);
-  const totals = dayFoods.reduce((acc, item) => ({ calories: acc.calories + item.calories, protein: acc.protein + item.protein, carbs: acc.carbs + item.carbs, fat: acc.fat + item.fat, fibre: acc.fibre + item.fibre }), { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 });
+  const totals = sumFoods(dayFoods);
   const macros = [{ key: 'calories', label: 'Calories', value: totals.calories, goal: data.goals.calories, unit: 'kcal' }, { key: 'protein', label: 'Protein', value: totals.protein, goal: data.goals.protein, unit: 'g' }, { key: 'carbs', label: 'Carbohydrates', value: totals.carbs, goal: data.goals.carbs, unit: 'g' }, { key: 'fat', label: 'Fat', value: totals.fat, goal: data.goals.fat, unit: 'g' }, { key: 'fibre', label: 'Fibre', value: totals.fibre, goal: data.goals.fibre, unit: 'g' }];
-  return <div className="content"><PageHeading title="Nutrition" description="Notice what gives you energy. No numbers need to be perfect." action={<button className="primary-button" onClick={() => openModal('food')} data-testid="button-add-food"><Plus size={15} /> Add food</button>} name={profileName} /><div className="toolbar" style={{ marginBottom: 16 }}><input type="date" className="search-input" max={today} value={viewDate} onChange={(event) => setViewDate(event.target.value)} aria-label="Date to view" data-testid="input-nutrition-view-date" />{viewDate !== today && <button type="button" className="text-link" onClick={() => setViewDate(today)} data-testid="button-nutrition-today">Back to today</button>}</div><div className="nutrition-layout"><Panel title={viewDate === today ? 'Today at a glance' : `${formatDate(viewDate)} at a glance`} note="Targets are guides, not grades" action={<button className="text-link" onClick={() => openModal('goals')} data-testid="button-edit-nutrition-goals">Edit goals <ChevronRight size={13} style={{ verticalAlign: 'middle' }} /></button>}><div className="nutrition-total"><strong>{Math.round(totals.calories)}</strong><span>of {data.goals.calories} kcal</span></div><div className="macro-list">{macros.map((macro) => <div key={macro.key}><div className="macro-head"><span>{macro.label}</span><b>{Math.round(macro.value)}{macro.unit} / {macro.goal}{macro.unit}</b></div><div className={`macro-bar ${macro.key}`}><span style={{ width: `${Math.min(100, macro.value / macro.goal * 100)}%` }} /></div></div>)}</div></Panel><Panel title="Food log" note={`${dayFoods.length} moments recorded${viewDate === today ? ' today' : ''}`}>{dayFoods.length ? dayFoods.map((food) => <div className="food-entry" key={food.id} data-testid={`row-food-${food.id}`}><div className="food-dot"><Utensils size={15} /></div><div><strong>{food.label}</strong><p>{food.time} · {food.calories} kcal · {food.protein}g protein</p></div></div>) : <div className="empty-state"><Coffee size={27} /><h3>A blank plate</h3><p>Add a meal for this day when you are ready.</p></div>}</Panel></div></div>;
+  return <div className="content"><PageHeading title="Nutrition" description="Notice what gives you energy. No numbers need to be perfect." action={<div className="heading-actions"><button className="ghost-button" onClick={() => openModal('quickfood')} data-testid="button-quick-log-meal"><Flame size={14} /> Quick log</button><button className="primary-button" onClick={() => openModal('food')} data-testid="button-add-food"><Plus size={15} /> Add food</button></div>} name={profileName} /><div className="toolbar" style={{ marginBottom: 16 }}><input type="date" className="search-input" max={today} value={viewDate} onChange={(event) => setViewDate(event.target.value)} aria-label="Date to view" data-testid="input-nutrition-view-date" />{viewDate !== today && <button type="button" className="text-link" onClick={() => setViewDate(today)} data-testid="button-nutrition-today">Back to today</button>}</div>
+    <div className="nutrition-layout">
+      <Panel title={viewDate === today ? 'Today at a glance' : `${formatDate(viewDate)} at a glance`} note="Targets are guides, not grades" action={<button className="text-link" onClick={() => openModal('goals')} data-testid="button-edit-nutrition-goals">Edit goals <ChevronRight size={13} style={{ verticalAlign: 'middle' }} /></button>}>
+        <div className="nutrition-total"><strong>{Math.round(totals.calories)}</strong><span>of {data.goals.calories} kcal</span></div>
+        <div className="macro-list">{macros.map((macro) => <div key={macro.key}><div className="macro-head"><span>{macro.label}</span><b>{Math.round(macro.value)}{macro.unit} / {macro.goal}{macro.unit}</b></div><div className={`macro-bar ${macro.key}`}><span style={{ width: `${Math.min(100, macro.value / macro.goal * 100)}%` }} /></div></div>)}</div>
+      </Panel>
+      <Panel title="Food log" note={`${dayFoods.length} moments recorded${viewDate === today ? ' today' : ''}`}>
+        {dayFoods.length ? dayFoods.map((food) => <div className="food-entry" key={food.id} data-testid={`row-food-${food.id}`}>
+          <div className="food-dot"><Utensils size={15} /></div>
+          <div className="food-copy"><strong>{food.label}</strong><p>{[formatQty(food), `${round1(food.calories)} kcal`, `${round1(food.protein)}g protein`].filter(Boolean).join(' · ')}</p></div>
+          <button type="button" className="row-action" onClick={() => editFood(food)} aria-label={`Edit ${food.label}`} data-testid={`button-edit-food-${food.id}`}><Pencil size={14} /></button>
+          <button type="button" className="row-action" onClick={() => deleteFood(food.id)} aria-label={`Delete ${food.label}`} data-testid={`button-delete-food-${food.id}`}><Trash2 size={14} /></button>
+        </div>) : <div className="empty-state"><Coffee size={27} /><h3>A blank plate</h3><p>Add a meal for this day when you are ready.</p></div>}
+      </Panel>
+    </div>
+    <div className="view-card" style={{ marginTop: 18 }}><WeeklyProtein foods={data.foods} goal={data.goals.protein} /></div>
+    <div className="view-card" style={{ marginTop: 18 }}><NutritionAnalytics foods={data.foods} goals={data.goals} /></div>
+  </div>;
 }
 
 function WeightChart({ data }: { data: ReturnType<typeof useLifeTracker>['data'] }) {
@@ -514,11 +651,7 @@ function AnalyticsView({ data, openModal, profileName }: { data: ReturnType<type
   const completed = data.tasks.filter((task) => task.completed).length;
   const totals = data.foods.filter((food) => food.date === today).reduce((sum, food) => sum + food.calories, 0);
   const averageDailySpend = data.expenses.length ? data.expenses.reduce((sum, item) => sum + item.amount, 0) / Math.max(1, new Set(data.expenses.map((item) => item.date)).size) : 0;
-  const last7Days = Array.from({ length: 7 }, (_, index) => dateKey(new Date(Date.now() - (6 - index) * 86400000)));
-  const dailyCompletions = last7Days.map((day) => data.tasks.filter((task) => task.completedDates.includes(day)).length);
-  const maxCompletions = Math.max(1, ...dailyCompletions);
-  const heights = dailyCompletions.map((count) => count ? Math.max(10, Math.round((count / maxCompletions) * 100)) : 4);
-  return <div className="content"><PageHeading title="Analytics" description="Patterns to help you be on your own side." name={profileName} /><div className="view-card" style={{ marginBottom: 18 }}><HabitReports data={data} /></div><div className="dashboard-grid"><Panel title="Task rhythm" note="Completed responsibilities across the last seven days"><div className="chart">{heights.map((height, index) => <div className={`chart-col ${index === 6 ? 'current' : ''}`} key={index}><div className="chart-bar" style={{ height: `${height}%` }} /><label>{index === 6 ? 'Today' : new Intl.DateTimeFormat('en', { weekday: 'narrow' }).format(new Date(`${last7Days[index]}T12:00:00`))}</label></div>)}</div></Panel><Panel title="A few signals"><div className="metric-grid"><div className="metric"><span className="metric-label">Follow-through</span><strong className="metric-value">{data.tasks.length ? Math.round(completed / data.tasks.length * 100) : 0}%</strong><span className="metric-sub">across your list</span></div><div className="metric"><span className="metric-label">Daily expense</span><strong className="metric-value">{money(averageDailySpend)}</strong><span className="metric-sub">average recorded</span></div><div className="metric"><span className="metric-label">Calories today</span><strong className="metric-value">{totals}</strong><span className="metric-sub">of {data.goals.calories} kcal</span></div><div className="metric"><span className="metric-label">Longest streak</span><strong className="metric-value">{Math.max(0, ...data.tasks.map((task) => task.longestStreak))}</strong><span className="metric-sub">days showing up</span></div></div></Panel></div><div className="dashboard-grid analytics-lower"><Panel title="Weight trend" note="Your latest eight weigh-ins" action={<button className="text-link" onClick={() => openModal('weight')} data-testid="button-analytics-log-weight">Add entry <Plus size={13} /></button>}>{data.weightEntries.length ? <WeightChart data={data} /> : <div className="empty-state"><Scale size={27} /><h3>Start a trend</h3><p>Log your first weigh-in to see change over time.</p></div>}</Panel><Panel title="Food consistency" note="Today's nutrition against your guide"><div className="streak-list">{[['Calories', totals, data.goals.calories], ['Protein', data.foods.filter((food) => food.date === today).reduce((sum, food) => sum + food.protein, 0), data.goals.protein], ['Fibre', data.foods.filter((food) => food.date === today).reduce((sum, food) => sum + food.fibre, 0), data.goals.fibre]].map(([label, value, goal]) => <div className="streak" key={label as string}><span className="streak-name">{label as string}</span><div className="streak-bar"><span style={{ width: `${Math.min(100, Number(value) / Number(goal) * 100)}%` }} /></div><span className="streak-count">{Math.round(Number(value) / Number(goal) * 100)}%</span></div>)}</div></Panel></div></div>;
+  return <div className="content"><PageHeading title="Analytics" description="Patterns to help you be on your own side." name={profileName} /><div className="view-card" style={{ marginBottom: 18 }}><HabitReports data={data} /></div><div className="view-card" style={{ marginBottom: 18 }}><Panel title="A few signals"><div className="metric-grid"><div className="metric"><span className="metric-label">Follow-through</span><strong className="metric-value">{data.tasks.length ? Math.round(completed / data.tasks.length * 100) : 0}%</strong><span className="metric-sub">across your list</span></div><div className="metric"><span className="metric-label">Daily expense</span><strong className="metric-value">{money(averageDailySpend)}</strong><span className="metric-sub">average recorded</span></div><div className="metric"><span className="metric-label">Calories today</span><strong className="metric-value">{totals}</strong><span className="metric-sub">of {data.goals.calories} kcal</span></div><div className="metric"><span className="metric-label">Longest streak</span><strong className="metric-value">{Math.max(0, ...data.tasks.map((task) => task.longestStreak))}</strong><span className="metric-sub">days showing up</span></div></div></Panel></div><div className="dashboard-grid analytics-lower"><Panel title="Weight trend" note="Your latest eight weigh-ins" action={<button className="text-link" onClick={() => openModal('weight')} data-testid="button-analytics-log-weight">Add entry <Plus size={13} /></button>}>{data.weightEntries.length ? <WeightChart data={data} /> : <div className="empty-state"><Scale size={27} /><h3>Start a trend</h3><p>Log your first weigh-in to see change over time.</p></div>}</Panel><Panel title="Food consistency" note="Today's nutrition against your guide"><div className="streak-list">{[['Calories', totals, data.goals.calories], ['Protein', data.foods.filter((food) => food.date === today).reduce((sum, food) => sum + food.protein, 0), data.goals.protein], ['Fibre', data.foods.filter((food) => food.date === today).reduce((sum, food) => sum + food.fibre, 0), data.goals.fibre]].map(([label, value, goal]) => <div className="streak" key={label as string}><span className="streak-name">{label as string}</span><div className="streak-bar"><span style={{ width: `${Math.min(100, Number(value) / Number(goal) * 100)}%` }} /></div><span className="streak-count">{Math.round(Number(value) / Number(goal) * 100)}%</span></div>)}</div></Panel></div></div>;
 }
 
 function sheetsStatusLabel(status: SyncStatus, config: StoredSheetsConfig | null) {
@@ -539,7 +672,7 @@ function SettingsView({ data, resetData, openModal, sheets, disconnectSheets, pu
   </> : <button className="ghost-button" onClick={() => openModal('sheets')} data-testid="button-connect-sheets">Connect <ChevronRight size={14} /></button>}</div></div><div className="setting-row"><div><strong>Data & privacy</strong><p>Your entries stay in this browser, plus your own Google Sheet once connected.</p></div><button className="ghost-button" onClick={() => window.alert('Personal Tracker stores your data locally. Google Sheets sync is optional and only talks to the sheet you connect.')} data-testid="button-view-privacy">Read note <ChevronRight size={14} /></button></div><div className="setting-row"><div><strong>Start fresh</strong><p>Clear everything in this browser and return to the beginning.</p></div><button className="cancel-button" onClick={() => { if (window.confirm('Reset all data?')) resetData(); }} data-testid="button-reset-data"><Trash2 size={14} /> Reset</button></div></div></Panel></div></div>;
 }
 
-function ModalForm({ modal, close, editingTask, editingExpense, addTask, updateTask, addExpense, updateExpense, addFood, addFoodDatabase, addWeight, updateGoals, connectSheets, goals, foodDatabase, categories }: { modal: Modal; close: () => void; editingTask: Task | null; editingExpense: Expense | null; addTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt' | 'completedDates' | 'currentStreak' | 'longestStreak'>) => void; updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'icon' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => void; addExpense: (expense: Omit<Expense, 'id' | 'date'>, date?: string) => void; updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount' | 'date'>>) => void; addFood: (food: Omit<Food, 'id' | 'time' | 'date'>, date?: string) => void; addFoodDatabase: (food: FoodDatabaseEntry) => void; addWeight: (weight: number, date?: string) => void; updateGoals: (goals: Goals) => void; connectSheets: (config: SheetsConfig, mode: 'import' | 'push') => Promise<void>; goals: Goals; foodDatabase: FoodDatabaseEntry[]; categories: string[] }) {
+function ModalForm({ modal, close, editingTask, editingExpense, editingFood, addTask, updateTask, addExpense, updateExpense, addFood, updateFood, addFoodDatabase, addWeight, updateGoals, connectSheets, goals, foodDatabase, categories }: { modal: Modal; close: () => void; editingTask: Task | null; editingExpense: Expense | null; editingFood: Food | null; addTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt' | 'completedDates' | 'currentStreak' | 'longestStreak'>) => void; updateTask: (id: string, patch: Partial<Pick<Task, 'title' | 'icon' | 'priority' | 'recurrence' | 'recurrenceValue'>>) => void; addExpense: (expense: Omit<Expense, 'id' | 'date'>, date?: string) => void; updateExpense: (id: string, patch: Partial<Pick<Expense, 'label' | 'category' | 'amount' | 'date'>>) => void; addFood: (food: Omit<Food, 'id' | 'time' | 'date'>, date?: string) => void; updateFood: (id: string, patch: Partial<Omit<Food, 'id' | 'time'>>) => void; addFoodDatabase: (food: FoodDatabaseEntry) => void; addWeight: (weight: number, date?: string) => void; updateGoals: (goals: Goals) => void; connectSheets: (config: SheetsConfig, mode: 'import' | 'push') => Promise<void>; goals: Goals; foodDatabase: FoodDatabaseEntry[]; categories: string[] }) {
   const [form, setForm] = useState<Record<string, string>>({});
   const [foodMatch, setFoodMatch] = useState<FoodDatabaseEntry | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -548,12 +681,14 @@ function ModalForm({ modal, close, editingTask, editingExpense, addTask, updateT
     setConnecting(false);
     if (modal === 'task' && editingTask) setForm({ title: editingTask.title, priority: editingTask.priority, recurrence: editingTask.recurrence.join(','), icon: editingTask.icon || '' });
     else if (modal === 'expense' && editingExpense) setForm({ label: editingExpense.label, amount: String(editingExpense.amount), category: editingExpense.category, date: editingExpense.date });
+    else if (modal === 'food' && editingFood) setForm({ label: editingFood.label, quantity: editingFood.quantity ? String(editingFood.quantity) : '', unit: editingFood.unit || 'piece', date: editingFood.date, calories: String(editingFood.calories), protein: String(editingFood.protein), carbs: String(editingFood.carbs), fat: String(editingFood.fat), fibre: String(editingFood.fibre) });
     else setForm({});
-  }, [modal, editingTask, editingExpense]);
+  }, [modal, editingTask, editingExpense, editingFood]);
   if (!modal) return null;
-  const title = modal === 'task' ? (editingTask ? 'Edit task' : 'Add a task') : modal === 'expense' ? (editingExpense ? 'Edit expense' : 'Log an expense') : modal === 'food' ? 'Add a food moment' : modal === 'weight' ? 'Log weight' : modal === 'sheets' ? 'Connect Google Sheets' : 'Nutrition goals';
+  const title = modal === 'task' ? (editingTask ? 'Edit task' : 'Add a task') : modal === 'expense' ? (editingExpense ? 'Edit expense' : 'Log an expense') : modal === 'food' ? (editingFood ? 'Edit food' : 'Add a food moment') : modal === 'quickfood' ? 'Quick log a meal' : modal === 'weight' ? 'Log weight' : modal === 'sheets' ? 'Connect Google Sheets' : 'Nutrition goals';
   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const findFood = (value: string) => {
+    if (editingFood) { update('label', value); return; }
     const match = foodDatabase.find((food) => food.label.toLowerCase() === value.trim().toLowerCase());
     setFoodMatch(match ?? null);
     setForm((current) => ({
@@ -592,7 +727,13 @@ function ModalForm({ modal, close, editingTask, editingExpense, addTask, updateT
       const payload = { label: form.label.trim(), amount: Number(form.amount), category: form.category || categories[0] || 'Miscellaneous' };
       if (editingExpense) updateExpense(editingExpense.id, { ...payload, date }); else addExpense(payload, date);
     }
-    if (modal === 'food' && form.label?.trim() && form.calories) { const food = { label: form.label.trim(), calories: Number(form.calories), protein: Number(form.protein || 0), carbs: Number(form.carbs || 0), fat: Number(form.fat || 0), fibre: Number(form.fibre || 0) }; addFood(food, form.date || today); addFoodDatabase({ ...food, quantity: Number(form.quantity || 1), unit: (form.unit as FoodDatabaseEntry['unit']) || 'piece' }); }
+    if (modal === 'food' && form.label?.trim() && form.calories) {
+      const unit = (form.unit as FoodDatabaseEntry['unit']) || 'piece';
+      const food = { label: form.label.trim(), calories: Number(form.calories), protein: Number(form.protein || 0), carbs: Number(form.carbs || 0), fat: Number(form.fat || 0), fibre: Number(form.fibre || 0) };
+      if (editingFood) updateFood(editingFood.id, { ...food, quantity: form.quantity ? Number(form.quantity) : undefined, unit: form.quantity ? unit : undefined, date: form.date || today });
+      else { const quantity = Number(form.quantity || 1); addFood({ ...food, quantity, unit }, form.date || today); addFoodDatabase({ ...food, quantity, unit }); }
+    }
+    if (modal === 'quickfood' && (form.calories || form.protein || form.fibre)) addFood({ label: form.label?.trim() || 'Quick log', calories: Number(form.calories || 0), protein: Number(form.protein || 0), carbs: 0, fat: 0, fibre: Number(form.fibre || 0) }, form.date || today);
     if (modal === 'weight' && form.weight) addWeight(Number(form.weight), form.date || today);
     if (modal === 'goals') updateGoals({ calories: Number(form.calories || goals.calories), protein: Number(form.protein || goals.protein), carbs: Number(form.carbs || goals.carbs), fat: Number(form.fat || goals.fat), fibre: Number(form.fibre || goals.fibre), dailySpend: Number(form.dailySpend || goals.dailySpend) });
     close();
@@ -604,9 +745,10 @@ function ModalForm({ modal, close, editingTask, editingExpense, addTask, updateT
     {modal === 'task' && <><div className="field"><label htmlFor="task-title">What needs doing?</label><input id="task-title" autoFocus value={form.title || ''} onChange={(event) => update('title', event.target.value)} placeholder="e.g. Water the plants" data-testid="input-task-title" /></div><div className="field"><label>Icon</label><div className="icon-picker" role="group" aria-label="Choose an icon">{ICON_CHOICES.map((icon) => <button key={icon} type="button" className={`icon-chip ${(form.icon || guessIcon(form.title || '')) === icon ? 'active' : ''}`} onClick={() => update('icon', icon)} aria-label={`Use ${icon} icon`} data-testid={`button-icon-${icon}`}>{icon}</button>)}</div></div><div className="field"><label htmlFor="task-priority">Energy needed</label><select id="task-priority" value={form.priority || 'medium'} onChange={(event) => update('priority', event.target.value)} data-testid="select-task-priority"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><div className="field"><label>Repeat</label><div className="weekday-picker" role="group" aria-label="Repeat on days">{WEEKDAYS.map((day) => <button key={day} type="button" className={`weekday-chip ${selectedDays.includes(day) ? 'active' : ''}`} onClick={() => toggleDay(day)} aria-pressed={selectedDays.includes(day)} data-testid={`button-recurrence-${day}`}>{weekdayShort(day)}</button>)}</div><p className="field-hint">{selectedDays.length === 7 ? 'Repeats every day' : selectedDays.length ? `Repeats every ${selectedDays.map(weekdayShort).join(', ')}` : `One-time — only shows on ${editingTask ? formatDate(editingTask.createdAt) : 'today'}`}</p></div></>}
     {modal === 'expense' && <><div className="field"><label htmlFor="expense-label">What was it?</label><input id="expense-label" autoFocus value={form.label || ''} onChange={(event) => update('label', event.target.value)} placeholder="e.g. Friday lunch" data-testid="input-expense-label" /></div><div className="form-grid form-two"><div className="field"><label htmlFor="expense-amount">Amount</label><input id="expense-amount" type="number" min="0" step=".01" value={form.amount || ''} onChange={(event) => update('amount', event.target.value)} placeholder="0.00" data-testid="input-expense-amount" /></div><div className="field"><label htmlFor="expense-category">Category</label><select id="expense-category" value={form.category || categories[0]} onChange={(event) => update('category', event.target.value)} data-testid="select-expense-category">{categories.map((category) => <option key={category}>{category}</option>)}</select></div></div><div className="field"><label htmlFor="expense-date">Date</label><input id="expense-date" type="date" max={today} value={form.date || today} onChange={(event) => update('date', event.target.value)} data-testid="input-expense-date" /></div></>}
     {modal === 'food' && <><div className="field"><label htmlFor="food-label">Food or natural language</label><input id="food-label" autoFocus value={form.label || ''} onChange={(event) => findFood(event.target.value)} placeholder="Try “2 roti” or “Paneer”" data-testid="input-food-label" />{form.label && foodMatch && <p className="field-hint">Found in your food database. Nutrition has been filled in below.</p>}{form.label && !foodMatch && form.label.length > 2 && <p className="field-hint">Food not found. Enter the values once and it will be remembered.</p>}</div><div className="form-grid form-two"><div className="field"><label htmlFor="food-quantity">Quantity</label><input id="food-quantity" type="number" min="0" step=".1" value={form.quantity ?? '1'} onChange={(event) => update('quantity', event.target.value)} /></div><div className="field"><label htmlFor="food-unit">Unit</label><select id="food-unit" value={form.unit || 'piece'} onChange={(event) => update('unit', event.target.value)}><option value="piece">piece</option><option value="g">g</option><option value="ml">ml</option></select></div></div><div className="field"><label htmlFor="food-date">Date</label><input id="food-date" type="date" max={today} value={form.date || today} onChange={(event) => update('date', event.target.value)} data-testid="input-food-date" /></div><div className="form-grid form-two">{[['calories', 'Calories (kcal)'], ['protein', 'Protein (g)'], ['carbs', 'Carbs (g)'], ['fat', 'Fat (g)'], ['fibre', 'Fibre (g)']].map(([key, label]) => <div className="field" key={key}><label htmlFor={`food-${key}`}>{label}</label><input id={`food-${key}`} type="number" min="0" step=".1" value={form[key] ?? (foodMatch ? String(foodMatch[key as keyof FoodDatabaseEntry] ?? 0) : '')} onChange={(event) => update(key, event.target.value)} placeholder="0" data-testid={`input-food-${key}`} /></div>)}</div></>}
+    {modal === 'quickfood' && <><div className="field"><label htmlFor="quick-label">Name <span style={{ fontWeight: 500 }}>(optional)</span></label><input id="quick-label" autoFocus value={form.label || ''} onChange={(event) => update('label', event.target.value)} placeholder="e.g. Swiggy dinner" data-testid="input-quick-label" /></div><div className="form-grid form-two">{[['calories', 'Calories (kcal)'], ['protein', 'Protein (g)'], ['fibre', 'Fibre (g)']].map(([key, label]) => <div className="field" key={key}><label htmlFor={`quick-${key}`}>{label}</label><input id={`quick-${key}`} type="number" min="0" step=".1" value={form[key] ?? ''} onChange={(event) => update(key, event.target.value)} placeholder="0" data-testid={`input-quick-${key}`} /></div>)}<div className="field"><label htmlFor="quick-date">Date</label><input id="quick-date" type="date" max={today} value={form.date || today} onChange={(event) => update('date', event.target.value)} data-testid="input-quick-date" /></div></div><p className="field-hint">For when you already know the totals for the whole meal. Nothing is added to your food database.</p></>}
     {modal === 'weight' && <div className="form-grid form-two"><div className="field"><label htmlFor="weight-value">Weight (kg)</label><input id="weight-value" autoFocus type="number" min="0" step=".1" value={form.weight || ''} onChange={(event) => update('weight', event.target.value)} placeholder="68.4" data-testid="input-weight" /></div><div className="field"><label htmlFor="weight-date">Date</label><input id="weight-date" type="date" value={form.date || today} onChange={(event) => update('date', event.target.value)} data-testid="input-weight-date" /></div></div>}
     {modal === 'goals' && <div className="form-grid form-two">{[['calories', 'Calories (kcal)', goals.calories], ['protein', 'Protein (g)', goals.protein], ['carbs', 'Carbs (g)', goals.carbs], ['fat', 'Fat (g)', goals.fat], ['fibre', 'Fibre (g)', goals.fibre], ['dailySpend', 'Daily spend guide', goals.dailySpend]].map(([key, label, value]) => <div className="field" key={key as string}><label htmlFor={`goal-${key}`}>{label as string}</label><input id={`goal-${key}`} type="number" min="0" step=".1" value={form[key as string] ?? String(value)} onChange={(event) => update(key as string, event.target.value)} data-testid={`input-goal-${key}`} /></div>)}</div>}
-  </div><div className="modal-actions"><button type="button" className="cancel-button" onClick={close} data-testid="button-cancel-dialog">Cancel</button><button type="submit" className="primary-button" disabled={connecting} data-testid="button-save-dialog"><Check size={15} /> {modal === 'sheets' ? (connecting ? 'Connecting…' : 'Test & connect') : (editingTask || editingExpense) ? 'Save changes' : 'Save entry'}</button></div></form></div>;
+  </div><div className="modal-actions"><button type="button" className="cancel-button" onClick={close} data-testid="button-cancel-dialog">Cancel</button><button type="submit" className="primary-button" disabled={connecting} data-testid="button-save-dialog"><Check size={15} /> {modal === 'sheets' ? (connecting ? 'Connecting…' : 'Test & connect') : (editingTask || editingExpense || (modal === 'food' && editingFood)) ? 'Save changes' : 'Save entry'}</button></div></form></div>;
 }
 
 const PROFILE_NAME_KEY = 'life-tracker-profile-name';
@@ -631,26 +773,28 @@ function Onboarding({ onComplete }: { onComplete: (name: string) => void }) {
 
 function App() {
   const tracker = useLifeTracker();
-  const { data, toggleTask, deleteTask, stopTask, reactivateTask, addTask, updateTask, addExpense, updateExpense, deleteExpense, addFood, addFoodDatabase, addWeight, updateGoals, resetData, sheets, connectSheets, disconnectSheets, pullSheetsNow, pushSheetsNow } = tracker;
+  const { data, toggleTask, deleteTask, stopTask, reactivateTask, addTask, updateTask, addExpense, updateExpense, deleteExpense, addFood, updateFood, deleteFood, addFoodDatabase, addWeight, updateGoals, resetData, sheets, connectSheets, disconnectSheets, pullSheetsNow, pushSheetsNow } = tracker;
   const [view, setView] = useState<View>('dashboard');
   const [modal, setModal] = useState<Modal>(null);
   const [profileName, setProfileName] = useState<string | null>(readProfileName);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editingFood, setEditingFood] = useState<Food | null>(null);
   const editTask = (task: Task) => { setEditingTask(task); setModal('task'); };
   const editExpense = (expense: Expense) => { setEditingExpense(expense); setModal('expense'); };
-  const closeModal = () => { setModal(null); setEditingTask(null); setEditingExpense(null); };
+  const editFood = (food: Food) => { setEditingFood(food); setModal('food'); };
+  const closeModal = () => { setModal(null); setEditingTask(null); setEditingExpense(null); setEditingFood(null); };
   const content = useMemo(() => {
     if (view === 'dashboard') return <Dashboard data={data} toggleTask={toggleTask} openModal={setModal} setView={setView} profileName={profileName ?? ''} />;
     if (view === 'tasks') return <TasksView data={data} toggleTask={toggleTask} editTask={editTask} deleteTask={deleteTask} stopTask={stopTask} reactivateTask={reactivateTask} openModal={setModal} profileName={profileName ?? ''} />;
     if (view === 'expenses') return <ExpensesView data={data} openModal={setModal} editExpense={editExpense} deleteExpense={deleteExpense} profileName={profileName ?? ''} />;
-    if (view === 'nutrition') return <NutritionView data={data} openModal={setModal} profileName={profileName ?? ''} />;
+    if (view === 'nutrition') return <NutritionView data={data} openModal={setModal} editFood={editFood} deleteFood={deleteFood} profileName={profileName ?? ''} />;
     if (view === 'analytics') return <AnalyticsView data={data} openModal={setModal} profileName={profileName ?? ''} />;
     return <SettingsView data={data} resetData={resetData} openModal={setModal} sheets={sheets} disconnectSheets={disconnectSheets} pullSheetsNow={pullSheetsNow} pushSheetsNow={pushSheetsNow} profileName={profileName ?? ''} />;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, deleteExpense, deleteTask, stopTask, reactivateTask, disconnectSheets, profileName, pullSheetsNow, pushSheetsNow, resetData, sheets, toggleTask, view]);
   if (!profileName) return <Onboarding onComplete={(name) => { try { localStorage.setItem(PROFILE_NAME_KEY, name); } catch { /* ignore */ } setProfileName(name); }} />;
-  return <QueryClientProvider client={queryClient}><TooltipProvider><Shell view={view} setView={setView} profileName={profileName}>{content}</Shell><ModalForm modal={modal} close={closeModal} editingTask={editingTask} editingExpense={editingExpense} addTask={addTask} updateTask={updateTask} addExpense={addExpense} updateExpense={updateExpense} addFood={addFood} addFoodDatabase={addFoodDatabase} addWeight={addWeight} updateGoals={updateGoals} connectSheets={connectSheets} goals={data.goals} foodDatabase={data.foodDatabase} categories={data.categories} /></TooltipProvider></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><TooltipProvider><Shell view={view} setView={setView} profileName={profileName}>{content}</Shell><ModalForm modal={modal} close={closeModal} editingTask={editingTask} editingExpense={editingExpense} editingFood={editingFood} addTask={addTask} updateTask={updateTask} addExpense={addExpense} updateExpense={updateExpense} addFood={addFood} updateFood={updateFood} addFoodDatabase={addFoodDatabase} addWeight={addWeight} updateGoals={updateGoals} connectSheets={connectSheets} goals={data.goals} foodDatabase={data.foodDatabase} categories={data.categories} /></TooltipProvider></QueryClientProvider>;
 }
 
 export default App;
